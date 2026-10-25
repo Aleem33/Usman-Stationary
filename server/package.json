@@ -1,10 +1,11 @@
 {
   "name": "usman-stationary-api",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "private": true,
   "main": "index.js",
   "scripts": {
-    "start": "node index.js"
+    "start": "node index.js",
+    "build": "node --check index.js && node --check db.cjs && node --check mysql.cjs && node --check domain.cjs && node --check reports.cjs"
   },
   "engines": {
     "node": ">=22.13.0"
@@ -12,7 +13,6 @@
   "dependencies": {
     "bcryptjs": "^3.0.2",
     "express": "^5.1.0",
-    "mysql2": "^3.24.6",
-    "usman-stationary": "file:.."
+    "mysql2": "^3.24.6"
   }
 }

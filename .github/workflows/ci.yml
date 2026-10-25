@@ -16,6 +16,12 @@ jobs:
           ELECTRON_SKIP_BINARY_DOWNLOAD: 1
       - run: npm test
       - run: npm run build
+      - name: Install standalone backend
+        run: npm ci
+        working-directory: server
+      - name: Build standalone backend
+        run: npm run build
+        working-directory: server
   mysql:
     runs-on: ubuntu-latest
     strategy:

@@ -44,7 +44,7 @@ function createApp(db = openDatabase()) {
     res.json({
       ok: true,
       setup: !(await db.prepare("SELECT id FROM users LIMIT 1").get()),
-      version: "1.0.1",
+      version: "1.0.2",
       qa: process.env.QA_MODE === "1" && process.env.NODE_ENV !== "production",
     }),
   );
