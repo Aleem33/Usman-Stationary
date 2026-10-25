@@ -1,6 +1,6 @@
 {
   "name": "usman-stationary-api",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "private": true,
   "main": "index.js",
   "scripts": {
@@ -12,6 +12,7 @@
   "dependencies": {
     "bcryptjs": "^3.0.2",
     "express": "^5.1.0",
+    "mysql2": "^3.24.6",
     "usman-stationary": "file:.."
   }
 }

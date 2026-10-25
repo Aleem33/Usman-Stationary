@@ -1,28 +1,30 @@
 const { reports } = require("./catalog.cjs");
-function report(db, name, f = {}) {
+async function report(db, name, f = {}) {
   if (!Object.values(reports).flat().includes(name))
     throw Error("Unknown report");
   const from = f.from || "0001-01-01",
     to = f.to || "9999-12-31",
     party = Number(f.party_id) || null,
     item = Number(f.item_id) || null;
-  const docs = db
+  const docs = await db
     .prepare(
       "SELECT d.*,COALESCE(p.name,'Walk-in') party FROM documents d LEFT JOIN parties p ON p.id=d.party_id WHERE d.date BETWEEN ? AND ? AND (? IS NULL OR d.party_id=?) ORDER BY d.date DESC,d.id DESC",
     )
     .all(from, to, party, party);
-  const lines = db
+  const lines = await db
     .prepare(
       "SELECT l.*,d.number,d.type,d.date,d.party_id,COALESCE(p.name,'Walk-in') party FROM lines l JOIN documents d ON d.id=l.document_id LEFT JOIN parties p ON p.id=d.party_id WHERE d.date BETWEEN ? AND ? AND (? IS NULL OR d.party_id=?) AND (? IS NULL OR l.item_id=?)",
     )
     .all(from, to, party, party, item, item);
-  const entries = db
+  const entries = await db
     .prepare(
       "SELECT l.*,COALESCE(p.name,'—') party FROM ledger l LEFT JOIN parties p ON p.id=l.party_id WHERE l.date BETWEEN ? AND ? AND (? IS NULL OR l.party_id=?) ORDER BY l.date,l.id",
     )
     .all(from, to, party, party);
-  const allEntries = db.prepare("SELECT * FROM ledger WHERE date<=?").all(to);
-  const items = db
+  const allEntries = await db
+    .prepare("SELECT * FROM ledger WHERE date<=?")
+    .all(to);
+  const items = await db
     .prepare("SELECT * FROM items WHERE (? IS NULL OR id=?)")
     .all(item, item);
   const sgn = (t) => (t.endsWith("_return") ? -1 : 1);
@@ -132,11 +134,26 @@ function report(db, name, f = {}) {
         cost = sum("Cost of goods sold") + sum("Purchase price variance"),
         expenses = sum("Expenses");
       rows = [
-        { Account: "Net sales", Amount: revenue },
-        { Account: "Cost of goods sold", Amount: -cost },
-        { Account: "Gross profit", Amount: revenue - cost },
-        { Account: "Expenses", Amount: -expenses },
-        { Account: "Net profit", Amount: revenue - cost - expenses },
+        {
+          Account: "Net sales",
+          Amount: revenue,
+        },
+        {
+          Account: "Cost of goods sold",
+          Amount: -cost,
+        },
+        {
+          Account: "Gross profit",
+          Amount: revenue - cost,
+        },
+        {
+          Account: "Expenses",
+          Amount: -expenses,
+        },
+        {
+          Account: "Net profit",
+          Amount: revenue - cost - expenses,
+        },
       ];
       break;
     }
@@ -186,11 +203,13 @@ function report(db, name, f = {}) {
         ["Accounts receivable", "Accounts payable"].includes(e.account),
       );
       let balance =
-        db
-          .prepare(
-            "SELECT COALESCE(SUM(debit-credit),0) n FROM ledger WHERE date<? AND account IN ('Accounts receivable','Accounts payable') AND (? IS NULL OR party_id=?)",
-          )
-          .get(from, party, party).n / 100;
+        (
+          await db
+            .prepare(
+              "SELECT COALESCE(SUM(debit-credit),0) n FROM ledger WHERE date<? AND account IN ('Accounts receivable','Accounts payable') AND (? IS NULL OR party_id=?)",
+            )
+            .get(from, party, party)
+        ).n / 100;
       rows = [
         {
           Date: from,
@@ -223,27 +242,23 @@ function report(db, name, f = {}) {
       );
       break;
     case "All Parties Report":
-      rows = db
-        .prepare("SELECT * FROM parties")
-        .all()
-        .map((p) => ({
-          Name: p.name,
-          Type: p.kind,
-          Phone: p.phone,
-          Receivable:
-            allEntries
-              .filter(
-                (e) =>
-                  e.party_id === p.id && e.account === "Accounts receivable",
-              )
-              .reduce((n, e) => n + e.debit - e.credit, 0) / 100,
-          Payable:
-            allEntries
-              .filter(
-                (e) => e.party_id === p.id && e.account === "Accounts payable",
-              )
-              .reduce((n, e) => n + e.credit - e.debit, 0) / 100,
-        }));
+      rows = (await db.prepare("SELECT * FROM parties").all()).map((p) => ({
+        Name: p.name,
+        Type: p.kind,
+        Phone: p.phone,
+        Receivable:
+          allEntries
+            .filter(
+              (e) => e.party_id === p.id && e.account === "Accounts receivable",
+            )
+            .reduce((n, e) => n + e.debit - e.credit, 0) / 100,
+        Payable:
+          allEntries
+            .filter(
+              (e) => e.party_id === p.id && e.account === "Accounts payable",
+            )
+            .reduce((n, e) => n + e.credit - e.debit, 0) / 100,
+      }));
       break;
     case "Party Report by Items":
     case "Item Report by Party":
@@ -272,7 +287,7 @@ function report(db, name, f = {}) {
     case "Item Detail Report":
     case "Item Batch Report":
     case "Item Serial Report": {
-      const movements = db
+      const movements = await db
         .prepare("SELECT * FROM movements WHERE date<=?")
         .all(to);
       rows = items
@@ -296,10 +311,14 @@ function report(db, name, f = {}) {
           "Sale price": i.price / 100,
           Minimum: i.min_stock,
           ...(name === "Item Batch Report"
-            ? { Batch: i.batch || "Unassigned" }
+            ? {
+                Batch: i.batch || "Unassigned",
+              }
             : {}),
           ...(name === "Item Serial Report"
-            ? { Serial: i.serial || "Unassigned" }
+            ? {
+                Serial: i.serial || "Unassigned",
+              }
             : {}),
         }));
       note =
@@ -310,18 +329,19 @@ function report(db, name, f = {}) {
       rows = profit(lines.filter((l) => sales(l.type)));
       break;
     case "Stock Detail Report":
-      rows = db
-        .prepare(
-          "SELECT m.date,i.name,d.number,m.qty,m.cost FROM movements m JOIN items i ON i.id=m.item_id LEFT JOIN documents d ON d.id=m.document_id WHERE m.date BETWEEN ? AND ? AND (? IS NULL OR i.id=?) ORDER BY m.date,m.id",
-        )
-        .all(from, to, item, item)
-        .map((m) => ({
-          Date: m.date,
-          Item: m.name,
-          Reference: m.number || "Opening stock",
-          Quantity: m.qty,
-          Cost: m.cost / 100,
-        }));
+      rows = (
+        await db
+          .prepare(
+            "SELECT m.date,i.name,d.number,m.qty,m.cost FROM movements m JOIN items i ON i.id=m.item_id LEFT JOIN documents d ON d.id=m.document_id WHERE m.date BETWEEN ? AND ? AND (? IS NULL OR i.id=?) ORDER BY m.date,m.id",
+          )
+          .all(from, to, item, item)
+      ).map((m) => ({
+        Date: m.date,
+        Item: m.name,
+        Reference: m.number || "Opening stock",
+        Quantity: m.qty,
+        Cost: m.cost / 100,
+      }));
       break;
     case "Sale/Purchase By Item Category":
       rows = group(
@@ -345,7 +365,9 @@ function report(db, name, f = {}) {
       rows = group(
         lines.filter((l) => trade(l.type)),
         (l) => l.name,
-        { Discount: (l) => (sgn(l.type) * l.discount) / 100 },
+        {
+          Discount: (l) => (sgn(l.type) * l.discount) / 100,
+        },
       );
       break;
     case "Bank Statement": {
@@ -407,7 +429,10 @@ function report(db, name, f = {}) {
       rows = group(
         docs.filter((d) => d.type === "expense"),
         (d) => d.category,
-        { Amount: (d) => d.total / 100, Transactions: () => 1 },
+        {
+          Amount: (d) => d.total / 100,
+          Transactions: () => 1,
+        },
       );
       break;
     case "Expense Item Report":
@@ -433,6 +458,14 @@ function report(db, name, f = {}) {
       );
       break;
   }
-  return { name, rows, note, from, to };
+  return {
+    name,
+    rows,
+    note,
+    from,
+    to,
+  };
 }
-module.exports = { report };
+module.exports = {
+  report,
+};

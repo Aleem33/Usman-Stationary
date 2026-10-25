@@ -50,26 +50,20 @@ function date(v) {
     throw Error("Invalid date");
   return v;
 }
-function transaction(db, fn) {
-  db.exec("BEGIN IMMEDIATE");
-  try {
-    const r = fn();
-    db.exec("COMMIT");
-    return r;
-  } catch (e) {
-    db.exec("ROLLBACK");
-    throw e;
-  }
+async function transaction(db, fn) {
+  return db.transaction(fn);
 }
-function post(db, b) {
-  return transaction(db, () => {
+async function post(db, b) {
+  return await transaction(db, async () => {
     if (!types.includes(b.type)) throw Error("Invalid document type");
     date(b.date);
     const type = b.type,
       account = b.account || "Cash";
     if (!["Cash", "Bank"].includes(account)) throw Error("Invalid account");
     const party = b.party_id
-      ? db.prepare("SELECT * FROM parties WHERE id=?").get(Number(b.party_id))
+      ? await db
+          .prepare("SELECT * FROM parties WHERE id=?")
+          .get(Number(b.party_id))
       : null;
     if (b.party_id && !party) throw Error("Party not found");
     const financial = [
@@ -85,7 +79,7 @@ function post(db, b) {
     const sign = isReturn ? -1 : 1;
     let reference = null;
     if (isReturn) {
-      reference = db
+      reference = await db
         .prepare("SELECT * FROM documents WHERE id=?")
         .get(Number(b.reference_id));
       if (!reference || reference.type !== (isSale ? "sale" : "purchase"))
@@ -103,7 +97,7 @@ function post(db, b) {
         throw Error("Add at least one item (maximum 300)");
       const seen = new Set();
       for (const input of b.lines) {
-        const item = db
+        const item = await db
           .prepare("SELECT * FROM items WHERE id=?")
           .get(Number(input.item_id));
         if (!item) throw Error("Item not found");
@@ -115,15 +109,17 @@ function post(db, b) {
         let price = money(input.price),
           unitCost = item.cost;
         if (isReturn) {
-          const original = db
+          const original = await db
             .prepare("SELECT * FROM lines WHERE document_id=? AND item_id=?")
             .get(reference.id, item.id);
           if (!original) throw Error("Item is not on original invoice");
-          const returned = db
-            .prepare(
-              "SELECT COALESCE(SUM(l.qty),0) qty FROM lines l JOIN documents d ON d.id=l.document_id WHERE d.reference_id=? AND d.type=? AND l.item_id=?",
-            )
-            .get(reference.id, type, item.id).qty;
+          const returned = (
+            await db
+              .prepare(
+                "SELECT COALESCE(SUM(l.qty),0) qty FROM lines l JOIN documents d ON d.id=l.document_id WHERE d.reference_id=? AND d.type=? AND l.item_id=?",
+              )
+              .get(reference.id, type, item.id)
+          ).qty;
           if (qty + returned > original.qty + 0.000001)
             throw Error("Return exceeds original quantity");
           price = original.price;
@@ -134,7 +130,7 @@ function post(db, b) {
           throw Error("Line amount is too large");
         let disc, tx;
         if (isReturn) {
-          const original = db
+          const original = await db
             .prepare("SELECT * FROM lines WHERE document_id=? AND item_id=?")
             .get(reference.id, item.id);
           disc = Math.round((original.discount * qty) / original.qty);
@@ -160,7 +156,7 @@ function post(db, b) {
           qty * (isPurchase && !isReturn ? price : unitCost),
         );
         if (type === "sale_return") {
-          const original = db
+          const original = await db
             .prepare("SELECT * FROM lines WHERE document_id=? AND item_id=?")
             .get(reference.id, item.id);
           lineCost = Math.round((original.cost * qty) / original.qty);
@@ -202,33 +198,35 @@ function post(db, b) {
       (!["Cash", "Bank"].includes(b.to_account) || b.to_account === account)
     )
       throw Error("Choose a different destination account");
-    const next = db
-      .prepare("SELECT COALESCE(MAX(id),0)+1 n FROM documents")
-      .get().n;
+    const next = (
+      await db.prepare("SELECT COALESCE(MAX(id),0)+1 n FROM documents").get()
+    ).n;
     const number = prefixes[type] + "-" + String(next).padStart(6, "0");
     const id = Number(
-      db
-        .prepare(
-          "INSERT INTO documents(number,type,date,party_id,account,subtotal,discount,tax,total,paid,cost,notes,category,reference_id) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-        )
-        .run(
-          number,
-          type,
-          b.date,
-          party?.id || null,
-          account,
-          subtotal,
-          discount,
-          tax,
-          total,
-          paid,
-          cost,
-          String(b.notes || "").slice(0, 1000),
-          String(b.category || "General").slice(0, 100),
-          reference?.id || null,
-        ).lastInsertRowid,
+      (
+        await db
+          .prepare(
+            "INSERT INTO documents(number,type,date,party_id,account,subtotal,discount,tax,total,paid,cost,notes,category,reference_id) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+          )
+          .run(
+            number,
+            type,
+            b.date,
+            party?.id || null,
+            account,
+            subtotal,
+            discount,
+            tax,
+            total,
+            paid,
+            cost,
+            String(b.notes || "").slice(0, 1000),
+            String(b.category || "General").slice(0, 100),
+            reference?.id || null,
+          )
+      ).lastInsertRowid,
     );
-    function ledger(acc, debit, credit) {
+    async function ledger(acc, debit, credit) {
       if (debit < 0) {
         credit -= debit;
         debit = 0;
@@ -238,27 +236,31 @@ function post(db, b) {
         credit = 0;
       }
       if (debit || credit)
-        db.prepare(
-          "INSERT INTO ledger(document_id,date,account,debit,credit,party_id,memo) VALUES(?,?,?,?,?,?,?)",
-        ).run(id, b.date, acc, debit, credit, party?.id || null, number);
+        await db
+          .prepare(
+            "INSERT INTO ledger(document_id,date,account,debit,credit,party_id,memo) VALUES(?,?,?,?,?,?,?)",
+          )
+          .run(id, b.date, acc, debit, credit, party?.id || null, number);
     }
     for (const l of lines) {
-      db.prepare(
-        "INSERT INTO lines(document_id,item_id,name,category,qty,price,cost,discount,tax,total,batch,serial) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
-      ).run(
-        id,
-        l.item.id,
-        l.item.name,
-        l.item.category,
-        l.qty,
-        l.price,
-        l.cost,
-        l.discount,
-        l.tax,
-        l.total,
-        l.item.batch,
-        l.item.serial,
-      );
+      await db
+        .prepare(
+          "INSERT INTO lines(document_id,item_id,name,category,qty,price,cost,discount,tax,total,batch,serial) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
+        )
+        .run(
+          id,
+          l.item.id,
+          l.item.name,
+          l.item.category,
+          l.qty,
+          l.price,
+          l.cost,
+          l.discount,
+          l.tax,
+          l.total,
+          l.item.batch,
+          l.item.serial,
+        );
       if (isSale || isPurchase) {
         const change = (isSale ? -1 : 1) * sign * l.qty;
         if (l.item.stock + change < -0.000001)
@@ -273,67 +275,72 @@ function post(db, b) {
           newCost = Math.round(
             (l.item.stock * l.item.cost + l.cost) / (l.item.stock + l.qty),
           );
-        db.prepare("UPDATE items SET stock=stock+?,cost=? WHERE id=?").run(
-          change,
-          newCost,
-          l.item.id,
-        );
-        db.prepare(
-          "INSERT INTO movements(document_id,item_id,date,qty,cost) VALUES(?,?,?,?,?)",
-        ).run(id, l.item.id, b.date, change, l.cost);
+        await db
+          .prepare("UPDATE items SET stock=stock+?,cost=? WHERE id=?")
+          .run(change, newCost, l.item.id);
+        await db
+          .prepare(
+            "INSERT INTO movements(document_id,item_id,date,qty,cost) VALUES(?,?,?,?,?)",
+          )
+          .run(id, l.item.id, b.date, change, l.cost);
       }
     }
     if (isSale) {
-      ledger(account, sign * paid, 0);
-      ledger("Accounts receivable", sign * (total - paid), 0);
-      ledger("Sales", 0, sign * (subtotal - discount));
-      ledger("Tax payable", 0, sign * tax);
-      ledger("Cost of goods sold", sign * cost, 0);
-      ledger("Inventory", 0, sign * cost);
+      await ledger(account, sign * paid, 0);
+      await ledger("Accounts receivable", sign * (total - paid), 0);
+      await ledger("Sales", 0, sign * (subtotal - discount));
+      await ledger("Tax payable", 0, sign * tax);
+      await ledger("Cost of goods sold", sign * cost, 0);
+      await ledger("Inventory", 0, sign * cost);
     }
     if (isPurchase) {
-      ledger("Inventory", sign * (isReturn ? cost : subtotal - discount), 0);
+      await ledger(
+        "Inventory",
+        sign * (isReturn ? cost : subtotal - discount),
+        0,
+      );
       if (isReturn)
-        ledger("Purchase price variance", 0, subtotal - discount - cost);
-      ledger("Tax recoverable", sign * tax, 0);
-      ledger(account, 0, sign * paid);
-      ledger("Accounts payable", 0, sign * (total - paid));
+        await ledger("Purchase price variance", 0, subtotal - discount - cost);
+      await ledger("Tax recoverable", sign * tax, 0);
+      await ledger(account, 0, sign * paid);
+      await ledger("Accounts payable", 0, sign * (total - paid));
     }
     if (type === "expense") {
-      ledger("Expenses", total, 0);
-      ledger(account, 0, total);
+      await ledger("Expenses", total, 0);
+      await ledger(account, 0, total);
     }
     if (type === "receipt") {
-      ledger(account, total, 0);
-      ledger("Accounts receivable", 0, total);
+      await ledger(account, total, 0);
+      await ledger("Accounts receivable", 0, total);
     }
     if (type === "payment") {
-      ledger("Accounts payable", total, 0);
-      ledger(account, 0, total);
+      await ledger("Accounts payable", total, 0);
+      await ledger(account, 0, total);
     }
     if (type === "transfer") {
-      ledger(account, 0, total);
-      ledger(b.to_account, total, 0);
+      await ledger(account, 0, total);
+      await ledger(b.to_account, total, 0);
     }
     if (type === "opening") {
-      ledger(account, total, 0);
-      ledger("Opening equity", 0, total);
+      await ledger(account, total, 0);
+      await ledger("Opening equity", 0, total);
     }
-    const balance = db
-      .prepare(
-        "SELECT COALESCE(SUM(debit-credit),0) n FROM ledger WHERE document_id=?",
-      )
-      .get(id).n;
+    const balance = (
+      await db
+        .prepare(
+          "SELECT COALESCE(SUM(debit-credit),0) n FROM ledger WHERE document_id=?",
+        )
+        .get(id)
+    ).n;
     if (balance !== 0) throw Error("Accounting entries do not balance");
-    db.prepare("INSERT INTO audit(action,detail) VALUES(?,?)").run(
-      "document.created",
-      number,
-    );
-    return getDocument(db, id);
+    await db
+      .prepare("INSERT INTO audit(action,detail) VALUES(?,?)")
+      .run("document.created", number);
+    return await getDocument(db, id);
   });
 }
-function getDocument(db, id) {
-  const d = db
+async function getDocument(db, id) {
+  const d = await db
     .prepare(
       "SELECT d.*,p.name party_name,p.phone,p.address FROM documents d LEFT JOIN parties p ON p.id=d.party_id WHERE d.id=?",
     )
@@ -341,11 +348,13 @@ function getDocument(db, id) {
   if (!d) throw Error("Document not found");
   return {
     ...d,
-    lines: db.prepare("SELECT * FROM lines WHERE document_id=?").all(d.id),
+    lines: await db
+      .prepare("SELECT * FROM lines WHERE document_id=?")
+      .all(d.id),
   };
 }
-function saveItem(db, b) {
-  return transaction(db, () => {
+async function saveItem(db, b) {
+  return await transaction(db, async () => {
     const name = text(b.name),
       barcode = text(b.barcode || String(Date.now())),
       category = text(b.category || "General"),
@@ -363,57 +372,65 @@ function saveItem(db, b) {
     if (!/^[\x20-\x7e]{1,80}$/.test(barcode))
       throw Error("Use 1–80 printable ASCII characters for Code 128 barcodes");
     if (b.id) {
-      const old = db
+      const old = await db
         .prepare("SELECT * FROM items WHERE id=?")
         .get(Number(b.id));
       if (!old) throw Error("Item not found");
-      db.prepare(
-        "UPDATE items SET name=?,barcode=?,category=?,unit=?,price=?,min_stock=?,batch=?,serial=? WHERE id=?",
-      ).run(
-        name,
-        barcode,
-        category,
-        text(b.unit || "pcs"),
-        price,
-        min,
-        String(b.batch || ""),
-        String(b.serial || ""),
-        old.id,
-      );
-      return old.id;
-    }
-    const id = Number(
-      db
+      await db
         .prepare(
-          "INSERT INTO items(name,barcode,category,unit,cost,price,stock,min_stock,batch,serial) VALUES(?,?,?,?,?,?,?,?,?,?)",
+          "UPDATE items SET name=?,barcode=?,category=?,unit=?,price=?,min_stock=?,batch=?,serial=? WHERE id=?",
         )
         .run(
           name,
           barcode,
           category,
           text(b.unit || "pcs"),
-          cost,
           price,
-          stock,
           min,
           String(b.batch || ""),
           String(b.serial || ""),
-        ).lastInsertRowid,
+          old.id,
+        );
+      return old.id;
+    }
+    const id = Number(
+      (
+        await db
+          .prepare(
+            "INSERT INTO items(name,barcode,category,unit,cost,price,stock,min_stock,batch,serial) VALUES(?,?,?,?,?,?,?,?,?,?)",
+          )
+          .run(
+            name,
+            barcode,
+            category,
+            text(b.unit || "pcs"),
+            cost,
+            price,
+            stock,
+            min,
+            String(b.batch || ""),
+            String(b.serial || ""),
+          )
+      ).lastInsertRowid,
     );
     if (stock) {
       const day = new Date().toLocaleDateString("en-CA", {
           timeZone: "Asia/Karachi",
         }),
         value = Math.round(stock * cost);
-      db.prepare(
-        "INSERT INTO movements(item_id,date,qty,cost) VALUES(?,?,?,?)",
-      ).run(id, day, stock, value);
-      db.prepare(
-        "INSERT INTO ledger(date,account,debit,credit,memo) VALUES(?,?,?,?,?)",
-      ).run(day, "Inventory", value, 0, "Opening stock");
-      db.prepare(
-        "INSERT INTO ledger(date,account,debit,credit,memo) VALUES(?,?,?,?,?)",
-      ).run(day, "Opening equity", 0, value, "Opening stock");
+      await db
+        .prepare("INSERT INTO movements(item_id,date,qty,cost) VALUES(?,?,?,?)")
+        .run(id, day, stock, value);
+      await db
+        .prepare(
+          "INSERT INTO ledger(date,account,debit,credit,memo) VALUES(?,?,?,?,?)",
+        )
+        .run(day, "Inventory", value, 0, "Opening stock");
+      await db
+        .prepare(
+          "INSERT INTO ledger(date,account,debit,credit,memo) VALUES(?,?,?,?,?)",
+        )
+        .run(day, "Opening equity", 0, value, "Opening stock");
     }
     return id;
   });

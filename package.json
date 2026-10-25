@@ -21,6 +21,7 @@
     "electron-updater": "^6.8.11",
     "express": "^5.1.0",
     "lucide-react": "^0.468.0",
+    "mysql2": "^3.24.6",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
   },

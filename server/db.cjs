@@ -1,7 +1,7 @@
-const { DatabaseSync } = require("node:sqlite");
 const fs = require("node:fs");
 const path = require("node:path");
 function openDatabase(file = process.env.DB_PATH || "data/store.db") {
+  const { DatabaseSync } = require("node:sqlite");
   if (file !== ":memory:")
     fs.mkdirSync(path.dirname(file), { recursive: true });
   const db = new DatabaseSync(file);
@@ -17,6 +17,39 @@ function openDatabase(file = process.env.DB_PATH || "data/store.db") {
  CREATE TABLE IF NOT EXISTS movements(id INTEGER PRIMARY KEY,document_id INTEGER REFERENCES documents(id),item_id INTEGER REFERENCES items(id),date TEXT NOT NULL,qty REAL NOT NULL,cost INTEGER NOT NULL);
  CREATE TABLE IF NOT EXISTS audit(id INTEGER PRIMARY KEY,date TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,action TEXT NOT NULL,detail TEXT NOT NULL);
  `);
+  db.dialect = "sqlite";
+  db.columns = async (table) =>
+    db
+      .prepare(`PRAGMA table_info(${table})`)
+      .all()
+      .map((c) => c.name);
+  let queue = Promise.resolve();
+  db.transaction = async (fn) => {
+    const previous = queue;
+    let unlock;
+    queue = new Promise((resolve) => (unlock = resolve));
+    await previous;
+    db.exec("BEGIN IMMEDIATE");
+    try {
+      const result = await fn();
+      db.exec("COMMIT");
+      return result;
+    } catch (e) {
+      db.exec("ROLLBACK");
+      throw e;
+    } finally {
+      unlock();
+    }
+  };
   return db;
 }
-module.exports = { openDatabase };
+async function openConfiguredDatabase() {
+  if (process.env.DB_CLIENT === "mysql" || process.env.DB_HOST)
+    return require("./mysql.cjs").openMySQL();
+  if (process.env.NODE_ENV === "production")
+    throw Error(
+      "Set DB_CLIENT=mysql and the DB_HOST, DB_PORT, DB_NAME, DB_USER and DB_PASSWORD environment variables",
+    );
+  return openDatabase();
+}
+module.exports = { openDatabase, openConfiguredDatabase };

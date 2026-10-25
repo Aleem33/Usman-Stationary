@@ -16,3 +16,39 @@ jobs:
           ELECTRON_SKIP_BINARY_DOWNLOAD: 1
       - run: npm test
       - run: npm run build
+  mysql:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        database: ["mysql:8.4", "mariadb:11.4"]
+    services:
+      database:
+        image: ${{ matrix.database }}
+        env:
+          MYSQL_ROOT_PASSWORD: isolated-ci-password
+          MYSQL_ROOT_HOST: "%"
+          MYSQL_DATABASE: usman_test
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="bash -c 'echo > /dev/tcp/127.0.0.1/3306'"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+        env:
+          ELECTRON_SKIP_BINARY_DOWNLOAD: 1
+      - run: node --test tests/mysql.test.js
+        env:
+          MYSQL_TEST_MODE: 1
+          DB_HOST: 127.0.0.1
+          DB_PORT: 3306
+          DB_NAME: usman_test
+          DB_USER: root
+          DB_PASSWORD: isolated-ci-password

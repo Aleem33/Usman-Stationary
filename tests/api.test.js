@@ -18,7 +18,10 @@ test("API requires setup key, authenticates, persists data and revokes sessions"
       },
       body: body ? JSON.stringify(body) : undefined,
     });
-    return { status: res.status, body: await res.json() };
+    return {
+      status: res.status,
+      body: await res.json(),
+    };
   };
   try {
     assert.equal((await request("/state")).status, 401);
@@ -55,7 +58,13 @@ test("API requires setup key, authenticates, persists data and revokes sessions"
       type: "sale",
       date: "2026-10-25",
       paid: 150,
-      lines: [{ item_id: 1, qty: 1, price: 150 }],
+      lines: [
+        {
+          item_id: 1,
+          qty: 1,
+          price: 150,
+        },
+      ],
     });
     assert.equal(d.status, 200);
     assert.equal(d.body.total, 15000);
