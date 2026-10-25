@@ -1,4 +1,11 @@
-const { app, BrowserWindow, ipcMain, shell, dialog } = require("electron");
+const {
+  app,
+  BrowserWindow,
+  ipcMain,
+  shell,
+  dialog,
+  screen,
+} = require("electron");
 const path = require("node:path");
 const fs = require("node:fs");
 const { autoUpdater } = require("electron-updater");
@@ -7,11 +14,12 @@ function trusted(event) {
   if (event.sender !== main?.webContents) throw Error("Untrusted IPC sender");
 }
 app.whenReady().then(() => {
+  const available = screen.getPrimaryDisplay().workAreaSize;
   main = new BrowserWindow({
-    width: 1480,
-    height: 960,
-    minWidth: 1080,
-    minHeight: 720,
+    width: Math.min(1480, available.width),
+    height: Math.min(960, available.height),
+    minWidth: Math.min(900, available.width),
+    minHeight: Math.min(480, available.height),
     title: "Usman Stationary",
     icon: path.join(__dirname, "../assets/icon.png"),
     backgroundColor: "#f6f7fb",
