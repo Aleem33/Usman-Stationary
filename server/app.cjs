@@ -5,13 +5,19 @@ const path = require("node:path");
 const { openDatabase } = require("./db.cjs");
 const { post, getDocument, saveItem, text, reports } = require("./domain.cjs");
 const { report } = require("./reports.cjs");
+const {
+  createBackup,
+  dataSummary,
+  replaceBusinessData,
+} = require("./data-management.cjs");
 function createApp(db = openDatabase()) {
   const app = express();
   app.disable("x-powered-by");
-  app.use(
-    express.json({
-      limit: "1mb",
-    }),
+  const smallJson = express.json({
+    limit: "1mb",
+  });
+  app.use((req, res, next) =>
+    req.path === "/api/restore" ? next() : smallJson(req, res, next),
   );
   const origins = new Set([
     "http://127.0.0.1:5173",
@@ -44,7 +50,7 @@ function createApp(db = openDatabase()) {
     res.json({
       ok: true,
       setup: !(await db.prepare("SELECT id FROM users LIMIT 1").get()),
-      version: "1.0.3",
+      version: "1.0.4",
       qa: process.env.QA_MODE === "1" && process.env.NODE_ENV !== "production",
     }),
   );
@@ -115,6 +121,7 @@ function createApp(db = openDatabase()) {
         error: "Please sign in",
       });
     req.session = hash(token);
+    req.userId = session.user_id;
     next();
   });
   app.post("/api/logout", async (req, res) => {
@@ -126,27 +133,31 @@ function createApp(db = openDatabase()) {
   app.get(
     "/api/state",
     wrap(async (req, res) =>
-      res.json({
-        items: await db.prepare("SELECT * FROM items ORDER BY name").all(),
-        parties: await db.prepare("SELECT * FROM parties ORDER BY name").all(),
-        documents: await db
-          .prepare(
-            "SELECT d.*,p.name party_name FROM documents d LEFT JOIN parties p ON p.id=d.party_id ORDER BY d.date DESC,d.id DESC",
-          )
-          .all(),
-        accounts: await db
-          .prepare(
-            "SELECT account,SUM(debit-credit) balance FROM ledger GROUP BY account",
-          )
-          .all(),
-        settings: Object.fromEntries(
-          (await db.prepare("SELECT * FROM settings").all()).map((r) => [
-            r.key,
-            r.value,
-          ]),
-        ),
-        reports,
-      }),
+      res.json(
+        await db.transaction(async () => ({
+          items: await db.prepare("SELECT * FROM items ORDER BY name").all(),
+          parties: await db
+            .prepare("SELECT * FROM parties ORDER BY name")
+            .all(),
+          documents: await db
+            .prepare(
+              "SELECT d.*,p.name party_name FROM documents d LEFT JOIN parties p ON p.id=d.party_id ORDER BY d.date DESC,d.id DESC",
+            )
+            .all(),
+          accounts: await db
+            .prepare(
+              "SELECT account,SUM(debit-credit) balance FROM ledger GROUP BY account",
+            )
+            .all(),
+          settings: Object.fromEntries(
+            (await db.prepare("SELECT * FROM settings").all()).map((r) => [
+              r.key,
+              r.value,
+            ]),
+          ),
+          reports,
+        })),
+      ),
     ),
   );
   app.post(
@@ -161,27 +172,29 @@ function createApp(db = openDatabase()) {
   app.post(
     "/api/parties",
     wrap(async (req, res) => {
-      const b = req.body;
-      if (!["customer", "supplier", "both"].includes(b.kind))
-        throw Error("Invalid party type");
-      const p = [
-        text(b.name),
-        b.kind,
-        String(b.phone || "").slice(0, 30),
-        String(b.address || "").slice(0, 300),
-      ];
-      if (b.id)
-        await db
-          .prepare(
-            "UPDATE parties SET name=?,kind=?,phone=?,address=? WHERE id=?",
-          )
-          .run(...p, Number(b.id));
-      else
-        await db
-          .prepare(
-            "INSERT INTO parties(name,kind,phone,address) VALUES(?,?,?,?)",
-          )
-          .run(...p);
+      await db.transaction(async () => {
+        const b = req.body;
+        if (!["customer", "supplier", "both"].includes(b.kind))
+          throw Error("Invalid party type");
+        const p = [
+          text(b.name),
+          b.kind,
+          String(b.phone || "").slice(0, 30),
+          String(b.address || "").slice(0, 300),
+        ];
+        if (b.id)
+          await db
+            .prepare(
+              "UPDATE parties SET name=?,kind=?,phone=?,address=? WHERE id=?",
+            )
+            .run(...p, Number(b.id));
+        else
+          await db
+            .prepare(
+              "INSERT INTO parties(name,kind,phone,address) VALUES(?,?,?,?)",
+            )
+            .run(...p);
+      });
       res.json({
         ok: true,
       });
@@ -193,32 +206,42 @@ function createApp(db = openDatabase()) {
   );
   app.get(
     "/api/documents/:id",
-    wrap(async (req, res) => res.json(await getDocument(db, req.params.id))),
+    wrap(async (req, res) =>
+      res.json(
+        await db.transaction(async () => await getDocument(db, req.params.id)),
+      ),
+    ),
   );
   app.get(
     "/api/reports",
     wrap(async (req, res) =>
-      res.json(await report(db, req.query.name, req.query)),
+      res.json(
+        await db.transaction(
+          async () => await report(db, req.query.name, req.query),
+        ),
+      ),
     ),
   );
   app.put(
     "/api/settings",
     wrap(async (req, res) => {
-      for (const key of [
-        "business_name",
-        "phone",
-        "address",
-        "invoice_footer",
-        "printer",
-        "paper",
-        "default_tax",
-      ])
-        if (typeof req.body[key] === "string")
-          await db
-            .prepare(
-              "INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
-            )
-            .run(key, req.body[key].slice(0, 500));
+      await db.transaction(async () => {
+        for (const key of [
+          "business_name",
+          "phone",
+          "address",
+          "invoice_footer",
+          "printer",
+          "paper",
+          "default_tax",
+        ])
+          if (typeof req.body[key] === "string")
+            await db
+              .prepare(
+                "INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+              )
+              .run(key, req.body[key].slice(0, 500));
+      });
       res.json({
         ok: true,
       });
@@ -227,46 +250,97 @@ function createApp(db = openDatabase()) {
   app.get(
     "/api/backup",
     wrap(async (req, res) => {
-      const tables = [
-        "items",
-        "parties",
-        "documents",
-        "lines",
-        "ledger",
-        "movements",
-        "settings",
-        "audit",
-      ];
       res.set("Content-Disposition", "attachment; filename=usman-backup.json");
-      const backup = await db.transaction(async () => ({
-        version: 1,
-        exported: new Date().toISOString(),
-        tables: Object.fromEntries(
-          await Promise.all(
-            tables.map(async (t) => [
-              t,
-              await db
-                .prepare(
-                  `SELECT * FROM ${t} ORDER BY ${t === "settings" ? "`key`" : "id"}`,
-                )
-                .all(),
-            ]),
-          ),
-        ),
-      }));
-      res.json(backup);
+      res.json(await createBackup(db));
+    }),
+  );
+  app.get(
+    "/api/data/summary",
+    wrap(async (req, res) => res.json(await dataSummary(db))),
+  );
+  const sensitiveAttempts = new Map();
+  async function confirmDataAction(req, res, confirmation) {
+    if (req.body?.confirmation !== confirmation) {
+      res.status(400).json({
+        error: "Type " + confirmation + " to confirm this action",
+      });
+      return false;
+    }
+    const now = Date.now();
+    let attempt = sensitiveAttempts.get(req.userId);
+    if (!attempt || attempt.until < now)
+      attempt = {
+        count: 0,
+        until: now + 15 * 60 * 1000,
+      };
+    if (attempt.count >= 5) {
+      res.status(429).json({
+        error: "Too many incorrect passwords. Try again in 15 minutes.",
+      });
+      return false;
+    }
+    const user = await db
+      .prepare("SELECT password FROM users WHERE id=?")
+      .get(req.userId);
+    const password = req.body?.password;
+    if (
+      !user ||
+      typeof password !== "string" ||
+      password.length > 200 ||
+      !bcrypt.compareSync(password, user.password)
+    ) {
+      attempt.count++;
+      sensitiveAttempts.set(req.userId, attempt);
+      res.status(403).json({
+        error: "Administrator password is incorrect",
+      });
+      return false;
+    }
+    sensitiveAttempts.delete(req.userId);
+    return true;
+  }
+  app.post(
+    "/api/reset",
+    wrap(async (req, res) => {
+      if (!(await confirmDataAction(req, res, "RESET"))) return;
+      res.json(
+        await replaceBusinessData(db, {
+          mode: "reset",
+          fingerprint: req.body.fingerprint,
+        }),
+      );
+    }),
+  );
+  app.post(
+    "/api/restore",
+    express.json({
+      limit: "25mb",
+    }),
+    wrap(async (req, res) => {
+      if (!(await confirmDataAction(req, res, "RESTORE"))) return;
+      res.json(
+        await replaceBusinessData(db, {
+          mode: "restore",
+          fingerprint: req.body.fingerprint,
+          backup: req.body.backup,
+        }),
+      );
     }),
   );
   app.use(express.static(path.join(__dirname, "../dist")));
   app.use((err, req, res, next) => {
     console.error(err.message);
-    res.status(400).json({
+    res.status(err.status === 413 ? 413 : 400).json({
       error:
-        err.message.includes("UNIQUE") || err.code === "ER_DUP_ENTRY"
-          ? "This barcode or document already exists"
-          : err.message,
+        err.status === 413
+          ? "Backup upload is too large (maximum 20 MB)"
+          : err.message.includes("UNIQUE") || err.code === "ER_DUP_ENTRY"
+            ? "This barcode or document already exists"
+            : err.message,
     });
   });
   return app;
 }
-module.exports = { createApp };
+module.exports = {
+  createApp,
+};

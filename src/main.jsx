@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
 import { createRoot } from "react-dom/client";
 import {
   LayoutDashboard,
@@ -510,7 +510,7 @@ function App() {
               <span className="muted">· Distribution & accounts</span>
             </span>
             <span>
-              All amounts in PKR <span className="dot-sep">·</span> v1.0.1
+              All amounts in PKR <span className="dot-sep">·</span> v1.0.2
             </span>
           </footer>
         </main>
@@ -2210,6 +2210,308 @@ function Reports({ state, run }) {
     </>
   );
 }
+function DataManagement({ run, notify, onChanged }) {
+  const input = useRef(null);
+  const [dialog, setDialog] = useState(null),
+    [loading, setLoading] = useState(false),
+    [pending, setPending] = useState(false),
+    [error, setError] = useState(""),
+    [password, setPassword] = useState(""),
+    [confirmation, setConfirmation] = useState("");
+  async function exportBackup() {
+    setPending(true);
+    setError("");
+    try {
+      await run(async () => {
+        try {
+          const data = await api("/backup");
+          download(
+            "usman-backup-" + today() + "-" + Date.now() + ".json",
+            JSON.stringify(data, null, 2),
+            "application/json",
+          );
+          return { ok: true };
+        } catch (e) {
+          setError(e.message);
+          throw e;
+        }
+      }, "Backup downloaded");
+    } finally {
+      setPending(false);
+    }
+  }
+  async function openDialog(mode, backup = null, name = "") {
+    setError("");
+    setPassword("");
+    setConfirmation("");
+    setDialog({ mode, backup, name, preview: null });
+    setLoading(true);
+    try {
+      const preview = await api("/data/summary");
+      setDialog((current) => (current ? { ...current, preview } : null));
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+  async function chooseBackup(e) {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    setError("");
+    try {
+      if (file.size > 20 * 1024 * 1024)
+        throw Error("Choose a backup file of 20 MB or smaller");
+      const backup = JSON.parse(await file.text());
+      const tables = [
+        "items",
+        "parties",
+        "documents",
+        "lines",
+        "ledger",
+        "movements",
+        "settings",
+        "audit",
+      ];
+      if (
+        backup.version !== 1 ||
+        !backup.tables ||
+        tables.some((table) => !Array.isArray(backup.tables[table]))
+      )
+        throw Error("Choose a valid Usman Stationary JSON backup");
+      await openDialog("restore", backup, file.name);
+    } catch (e) {
+      setError(
+        e instanceof SyntaxError ? "This file is not valid JSON" : e.message,
+      );
+    }
+  }
+  async function submit(e) {
+    e.preventDefault();
+    if (
+      !dialog?.preview ||
+      confirmation !== dialog.mode.toUpperCase() ||
+      !password ||
+      pending
+    )
+      return;
+    setPending(true);
+    setError("");
+    try {
+      const result = await run(
+        async () => {
+          try {
+            return await api("/" + dialog.mode, {
+              method: "POST",
+              body: {
+                password,
+                confirmation,
+                fingerprint: dialog.preview.fingerprint,
+                ...(dialog.mode === "restore" ? { backup: dialog.backup } : {}),
+              },
+            });
+          } catch (e) {
+            setError(e.message);
+            throw e;
+          }
+        },
+        dialog.mode === "restore"
+          ? "Business backup restored. Your login is unchanged."
+          : "Business data reset. Your login is unchanged.",
+      );
+      if (result) {
+        onChanged(result);
+        setDialog(null);
+        setPassword("");
+        setConfirmation("");
+      }
+    } finally {
+      setPending(false);
+    }
+  }
+  const counts = dialog?.preview?.counts;
+  return (
+    <>
+      <section className="panel settings-card">
+        <h2>Backup & restore</h2>
+        <p>
+          Download a complete business backup or restore a saved JSON file.
+          Backups include business settings and exclude login accounts and
+          sessions.
+        </p>
+        <div className="data-actions">
+          <button
+            className="secondary"
+            disabled={pending || loading}
+            onClick={exportBackup}
+          >
+            <Download size={16} /> Download backup
+          </button>
+          <button
+            className="secondary"
+            disabled={pending || loading}
+            onClick={() => input.current.click()}
+          >
+            <RefreshCw size={16} /> Restore backup
+          </button>
+        </div>
+        <input
+          ref={input}
+          className="hidden-input"
+          type="file"
+          accept=".json,application/json"
+          aria-label="Select backup file"
+          onChange={chooseBackup}
+        />
+        <p className="footnote">
+          Restore replaces current business records and settings. Files up to 20
+          MB and 50,000 rows are supported.
+        </p>
+        {!dialog && error && (
+          <div className="error" role="alert">
+            {error}
+          </div>
+        )}
+      </section>
+      <section className="panel settings-card danger-zone">
+        <h2>Reset business data</h2>
+        <p>
+          Clear items, customers, suppliers, transactions, stock, cash/bank
+          balances, expenses and business settings. Administrator accounts,
+          passwords and login sessions are preserved.
+        </p>
+        <button
+          className="danger"
+          disabled={pending || loading}
+          onClick={() => openDialog("reset")}
+        >
+          <Trash2 size={16} /> Reset all business data
+        </button>
+      </section>
+      {dialog && (
+        <Modal
+          title={
+            dialog.mode === "restore"
+              ? "Restore business backup"
+              : "Reset all business data"
+          }
+          onClose={() => !pending && setDialog(null)}
+        >
+          <form onSubmit={submit}>
+            <div className="data-warning">
+              <AlertCircle size={20} />
+              <p>
+                {dialog.mode === "restore"
+                  ? "This replaces the current store with the selected backup, including business settings."
+                  : "This permanently clears the current business records and resets business settings."}{" "}
+                Your administrator account, password and login sessions will
+                remain unchanged. Download a current backup before continuing if
+                you need a recovery copy.
+              </p>
+            </div>
+            {loading && (
+              <p className="footnote">Loading current data preview…</p>
+            )}
+            {counts && (
+              <div className="data-preview">
+                <h3>Current business data</h3>
+                <div>
+                  <span>Items</span>
+                  <b>{counts.items.toLocaleString()}</b>
+                  <span>Customers / suppliers</span>
+                  <b>{counts.parties.toLocaleString()}</b>
+                  <span>Documents</span>
+                  <b>{counts.documents.toLocaleString()}</b>
+                  <span>Ledger entries</span>
+                  <b>{counts.ledger.toLocaleString()}</b>
+                </div>
+              </div>
+            )}
+            {dialog.backup && (
+              <div className="data-preview">
+                <h3>Selected backup</h3>
+                <p className="backup-filename">{dialog.name}</p>
+                <p>
+                  {dialog.backup.tables.items.length.toLocaleString()} items ·{" "}
+                  {dialog.backup.tables.parties.length.toLocaleString()} parties
+                  · {dialog.backup.tables.documents.length.toLocaleString()}{" "}
+                  documents
+                </p>
+                {dialog.backup.exported && (
+                  <p>
+                    Exported:{" "}
+                    {new Date(dialog.backup.exported).toLocaleString("en-PK", {
+                      timeZone: "Asia/Karachi",
+                    })}
+                  </p>
+                )}
+              </div>
+            )}
+            <button
+              type="button"
+              className="secondary"
+              disabled={pending || loading}
+              onClick={exportBackup}
+            >
+              <Download size={16} /> Download current backup
+            </button>
+            <div className="confirm-fields">
+              <Field
+                label={"Type " + dialog.mode.toUpperCase() + " to confirm"}
+                required
+                autoComplete="off"
+                value={confirmation}
+                disabled={pending}
+                onChange={(e) => setConfirmation(e.target.value)}
+              />
+              <Field
+                label="Current administrator password"
+                required
+                type="password"
+                autoComplete="current-password"
+                value={password}
+                disabled={pending}
+                onChange={(e) => setPassword(e.target.value)}
+              />
+            </div>
+            {error && (
+              <div className="error" role="alert">
+                {error}
+              </div>
+            )}
+            <div className="modal-actions">
+              <button
+                type="button"
+                className="secondary"
+                disabled={pending}
+                onClick={() => setDialog(null)}
+              >
+                Cancel
+              </button>
+              <button
+                className="danger"
+                disabled={
+                  pending ||
+                  loading ||
+                  !dialog.preview ||
+                  confirmation !== dialog.mode.toUpperCase() ||
+                  !password
+                }
+              >
+                {pending
+                  ? "Working…"
+                  : dialog.mode === "restore"
+                    ? "Replace business data"
+                    : "Reset business data"}
+              </button>
+            </div>
+          </form>
+        </Modal>
+      )}
+    </>
+  );
+}
 function SettingsPage({ state, run, notify }) {
   const [b, setB] = useState({
       business_name: "Usman Stationary",
@@ -2297,7 +2599,7 @@ function SettingsPage({ state, run, notify }) {
       <div>
         <section className="panel settings-card">
           <h2>App updates</h2>
-          <p>Installed version 1.0.1</p>
+          <p>Installed version 1.0.2</p>
           <div className="notice">{updates}</div>
           <div className="actions">
             <button
@@ -2329,28 +2631,24 @@ function SettingsPage({ state, run, notify }) {
             Updates download automatically. Install when your work is saved.
           </p>
         </section>
+        <DataManagement
+          run={run}
+          notify={notify}
+          onChanged={(result) =>
+            setB({
+              business_name: "Usman Stationary",
+              address: "",
+              phone: "",
+              invoice_footer: "Thank you for your business.",
+              paper: "A4",
+              printer: "",
+              default_tax: "0",
+              ...result.settings,
+            })
+          }
+        />
         <section className="panel settings-card">
-          <h2>Backup & connection</h2>
-          <p>
-            Download a business data snapshot for safekeeping. Server
-            administrators can restore it with the documented backup tool.
-          </p>
-          <button
-            className="secondary"
-            onClick={() =>
-              run(async () => {
-                const data = await api("/backup");
-                download(
-                  "usman-backup-" + today() + ".json",
-                  JSON.stringify(data, null, 2),
-                  "application/json",
-                );
-                return { ok: true };
-              }, "Backup downloaded")
-            }
-          >
-            <Download size={16} /> Export backup
-          </button>
+          <h2>Connection</h2>
           <div className="connection-info">
             <small>API SERVER</small>
             <p>{apiBase()}</p>

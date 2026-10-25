@@ -27,7 +27,7 @@ In a second terminal run `npm run dev`, then open http://127.0.0.1:5173. Create 
 - A4, 80 mm and 58 mm document layouts, Windows printer selection and PDF export. Barcode labels use a normal A4 printer.
 - WhatsApp opens a prefilled document summary addressed to the contact. Save the PDF and attach it manually in WhatsApp to share the file; this is not unattended WhatsApp Business API delivery.
 - All **34** reports from the supplied screenshots, with date filters, CSV export and print/PDF. Party/item filters apply to relevant reports. Accounting statements use cumulative end-date balances.
-- Backup export and a server-side restore script. Passwords and sessions are excluded from exported business backups.
+- Settings controls for backup download, restore and business-data reset. Login accounts, passwords and sessions are excluded from backups and preserved during restore/reset. A server-side restore script is also included.
 
 ## Hostinger Business deployment
 
@@ -37,7 +37,7 @@ Hostinger documents Express/Node.js support on Business plans. See [their curren
 2. Set the application root to **server**, framework **Express**, Node **22** (22.13+) or **24**, entry **index.js**, install command **npm ci**, start command **npm start**. The API is a separate package and does not install Electron. Set the build command to `npm run build`; this checks the backend JavaScript syntax. Leave the output directory empty. The entry file must be `index.js` relative to the `server` application root.
 3. Bind the custom domain **store.aleemcore.com** to this Node.js application, enable SSL and let hPanel configure the domain routing. Existing files on a different website root do not automatically expose this API.
 4. Create a MySQL database under **Databases → Management**. Keep the full database name and username, including Hostinger's `u..._` prefix. Add environment variables from `.env.example` in hPanel: `DB_CLIENT=mysql`, `DB_HOST=127.0.0.1`, `DB_PORT=3306`, `DB_NAME`, `DB_USER`, `DB_PASSWORD`, `HOST=0.0.0.0` and a random `SETUP_KEY`. Keep an existing Hostinger-assigned `PORT`; if a value is required and none is assigned, the app default is `4000`. Do not use `DB_PATH` for MySQL. Keep the database password and setup key out of GitHub.
-5. Deploy/restart the backend. The entry file starts listening immediately to support Hostinger’s imported-entry loader, then initializes the database. During initialization, the API returns HTTP 503 with `status: starting`; readiness becomes healthy only after all tables are available. It connects to your existing MySQL database and creates all tables automatically; no phpMyAdmin SQL import is necessary. Table creation needs the normal CREATE privilege on that database. Production requires MySQL credentials and refuses to fall back to a temporary SQLite file. Backend 1.0.3 is compatible with the existing Windows 1.0.0 client.
+5. Deploy/restart the backend. The entry file starts listening immediately to support Hostinger’s imported-entry loader, then initializes the database. During initialization, the API returns HTTP 503 with `status: starting`; readiness becomes healthy only after all tables are available. It connects to your existing MySQL database and creates all tables automatically; no phpMyAdmin SQL import is necessary. Table creation needs the normal CREATE privilege on that database. Production requires MySQL credentials and refuses to fall back to a temporary SQLite file. Backend 1.0.4 remains compatible with older Windows clients; the new Settings restore/reset controls require Windows client 1.0.2 or newer.
 6. Open `https://store.aleemcore.com/api/health`; it should return `ok: true`. In the desktop app create your admin with the setup key. After the account exists, remove the setup key from hPanel. It is not needed for subsequent sign-ins.
 7. Export backups regularly and verify recovery into a separate database. Managed hosting deployment, DNS, SSL and physical printer output must be checked on your account/devices.
 
@@ -61,6 +61,14 @@ The API posts double-entry accounts and stock changes in a single transaction. N
 This first release is an online, single-store, single-administrator application. No offline synchronization, multi-user roles, full per-unit serial tracking, batch expiry allocation, bank reconciliation/import, or order fulfillment lifecycle is implemented. Batch/serial reports show item-level identifiers. Orders and quotations are immutable informational documents; using one for an invoice copies its lines and does not track partial fulfillment. Receipts/payments post to the party ledger rather than allocating against individual invoices. Invoice Paid/Balance fields show payments at posting time; the party statement includes later receipts/payments.
 
 Stock summaries report end-date quantities at **current** weighted-average cost, not historical valuation. Keep these report notes in mind when comparing periods. Financial balances require complete opening balances and transaction entry; have your accountant verify your starting ledger before relying on it for formal accounts.
+
+## Backup, restore and reset in Settings
+
+Use **Settings → Backup & restore** to download a JSON backup or select a saved backup for restore. A restore replaces all business records and business settings in the connected store. **Reset business data** clears inventory, parties, documents, financial entries, expenses and business settings. Server environment variables and the local API connection are not changed.
+
+Both operations preserve every administrator account, password and login session. They require the current administrator password and typing `RESTORE` or `RESET`. Download a current backup first if you need a recovery copy. A preview shows the affected record counts. If business records change after the preview, the server refuses the operation and asks for a fresh preview.
+
+Restore validates checksums (when present), table/column names, IDs, accounting balances and foreign keys. Backup files cannot import users or sessions. Deletion and insertion happen in one database transaction; a failure rolls back the operation. Files are limited to **20 MB / 50,000 rows**. Legacy version-1 business backups without checksums remain supported.
 
 ## Recovery
 

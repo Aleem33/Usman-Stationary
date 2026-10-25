@@ -223,6 +223,89 @@ test(
       const backup = await request("/backup");
       assert.equal(backup.status, 200);
       assert.ok(backup.body.tables.documents.length > 5);
+      const password = "ci-only-long-password";
+      const beforeSummary = (await request("/data/summary")).body;
+      assert.equal(
+        (
+          await request("/reset", {
+            password: "incorrect",
+            confirmation: "RESET",
+            fingerprint: beforeSummary.fingerprint,
+          })
+        ).status,
+        403,
+      );
+      assert.equal(
+        (
+          await request("/reset", {
+            password,
+            confirmation: "RESET",
+            fingerprint: beforeSummary.fingerprint,
+          })
+        ).status,
+        200,
+      );
+      assert.equal((await request("/state")).body.items.length, 0);
+      assert.equal((await request("/health")).body.setup, false);
+      const newItem = (
+        await request("/items", {
+          name: "After reset",
+          barcode: "AFTERRESET",
+          cost: 10,
+          price: 20,
+          stock: 2,
+        })
+      ).body.id;
+      const first = await request("/documents", {
+        type: "sale",
+        date: "2026-10-25",
+        paid: 20,
+        lines: [{ item_id: newItem, qty: 1, price: 20 }],
+      });
+      const second = await request("/documents", {
+        type: "sale",
+        date: "2026-10-25",
+        paid: 20,
+        lines: [{ item_id: newItem, qty: 1, price: 20 }],
+      });
+      assert.equal(first.body.number, "INV-000001");
+      assert.equal(second.body.number, "INV-000002");
+      const invalid = structuredClone(backup.body);
+      delete invalid.checksum;
+      invalid.tables.lines[0].document_id = 999999;
+      const priorRestore = (await request("/data/summary")).body.fingerprint;
+      assert.equal(
+        (
+          await request("/restore", {
+            password,
+            confirmation: "RESTORE",
+            fingerprint: priorRestore,
+            backup: invalid,
+          })
+        ).status,
+        400,
+      );
+      assert.equal(
+        (await request("/state")).body.documents.length,
+        2,
+        "Failed restore must roll back existing data",
+      );
+      const restored = await request("/restore", {
+        password,
+        confirmation: "RESTORE",
+        fingerprint: priorRestore,
+        backup: backup.body,
+      });
+      assert.equal(restored.status, 200, JSON.stringify(restored.body));
+      assert.equal((await request("/state")).body.items.length, 2);
+      assert.equal(
+        (await request("/state")).body.settings.business_name,
+        "Updated store",
+      );
+      assert.equal(
+        (await request("/auth", { name: "admin", password })).status,
+        200,
+      );
       assert.equal((await request("/logout", {})).status, 200);
       assert.equal((await request("/state")).status, 401);
     } finally {

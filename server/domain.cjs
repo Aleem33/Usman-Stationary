@@ -200,9 +200,14 @@ async function post(db, b) {
       (!["Cash", "Bank"].includes(b.to_account) || b.to_account === account)
     )
       throw Error("Choose a different destination account");
-    const next = (
-      await db.prepare("SELECT COALESCE(MAX(id),0)+1 n FROM documents").get()
-    ).n;
+    const last = await db
+      .prepare("SELECT number FROM documents ORDER BY id DESC LIMIT 1")
+      .get();
+    const next = last
+      ? Number(last.number.slice(last.number.lastIndexOf("-") + 1)) + 1
+      : 1;
+    if (!Number.isSafeInteger(next) || next < 1)
+      throw Error("Invalid document number sequence");
     const number = prefixes[type] + "-" + String(next).padStart(6, "0");
     const id = Number(
       (
