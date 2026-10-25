@@ -113,6 +113,21 @@ a {
   display: flex;
   flex-direction: column;
   padding: 29px 16px 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior-y: contain;
+  scrollbar-width: thin;
+  scrollbar-color: #6e9785 transparent;
+}
+.sidebar > * {
+  flex-shrink: 0;
+}
+.sidebar::-webkit-scrollbar {
+  width: 6px;
+}
+.sidebar::-webkit-scrollbar-thumb {
+  background: #6e9785;
+  border-radius: 6px;
 }
 .brand {
   display: flex;

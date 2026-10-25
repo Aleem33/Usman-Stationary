@@ -510,7 +510,7 @@ function App() {
               <span className="muted">· Distribution & accounts</span>
             </span>
             <span>
-              All amounts in PKR <span className="dot-sep">·</span> v1.0.0
+              All amounts in PKR <span className="dot-sep">·</span> v1.0.1
             </span>
           </footer>
         </main>
@@ -2297,7 +2297,7 @@ function SettingsPage({ state, run, notify }) {
       <div>
         <section className="panel settings-card">
           <h2>App updates</h2>
-          <p>Installed version 1.0.0</p>
+          <p>Installed version 1.0.1</p>
           <div className="notice">{updates}</div>
           <div className="actions">
             <button
