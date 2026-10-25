@@ -4,7 +4,7 @@ const { openMySQL } = require("../server/mysql.cjs");
 const { saveItem, post } = require("../server/domain.cjs");
 const { report } = require("../server/reports.cjs");
 const { reports } = require("../server/catalog.cjs");
-const { createApp } = require("../server/index.js");
+const { createApp } = require("../server/app.cjs");
 test(
   "real MySQL/MariaDB: schema, CRUD, tax, returns, reports, rollback, concurrent stock and API",
   { skip: process.env.MYSQL_TEST_MODE !== "1" },

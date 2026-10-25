@@ -1,7 +1,7 @@
 const { test } = require("node:test");
 const assert = require("node:assert/strict");
 const { openDatabase } = require("../server/db.cjs");
-const { createApp } = require("../server/index.js");
+const { createApp } = require("../server/app.cjs");
 test("API requires setup key, authenticates, persists data and revokes sessions", async () => {
   process.env.SETUP_KEY = "integration-test-key";
   const db = openDatabase(":memory:");
