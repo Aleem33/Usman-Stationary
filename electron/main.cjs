@@ -33,36 +33,41 @@ app.whenReady().then(() => {
   main.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
   main.webContents.on("will-navigate", (e) => e.preventDefault());
   main.loadFile(path.join(__dirname, "../dist/index.html"));
-  const update = (message) => main?.webContents.send("update-status", message);
+  const update = (message, type = "info") =>
+    main?.webContents.send("update-status", { message, type });
   autoUpdater.autoDownload = true;
   autoUpdater.autoInstallOnAppQuit = false;
   autoUpdater.on("checking-for-update", () => update("Checking for updates…"));
   autoUpdater.on("update-available", () => update("Downloading update…"));
   autoUpdater.on("update-not-available", () =>
-    update("You have the latest version"),
+    update("You have the latest version", "success"),
   );
-  autoUpdater.on("error", (e) => update("Update check failed: " + e.message));
+  autoUpdater.on("error", (e) =>
+    update("Update check failed: " + e.message, "error"),
+  );
   autoUpdater.on("update-downloaded", () => {
-    update("Update ready — install from Settings");
+    update("Update ready — install from Settings", "success");
   });
   ipcMain.handle("updates:check", (event) => {
     trusted(event);
-    if (!app.isPackaged) return "Updates are available in the installed app";
-    autoUpdater.checkForUpdates().catch((e) => update(e.message));
+    if (!app.isPackaged) {
+      update("Updates are available in the installed app");
+      return "Updates are available in the installed app";
+    }
+    autoUpdater
+      .checkForUpdates()
+      .catch((e) => update("Update check failed: " + e.message, "error"));
     return "Checking for updates…";
   });
   let ready = false;
   autoUpdater.on("update-downloaded", () => (ready = true));
-  ipcMain.handle("updates:install", async (event) => {
+  ipcMain.handle("updates:install", async (event, { confirmed } = {}) => {
     trusted(event);
-    if (!ready) throw Error("No downloaded update");
-    const result = await dialog.showMessageBox(main, {
-      type: "question",
-      buttons: ["Cancel", "Restart and install"],
-      message:
-        "Restart Usman Stationary to install the update? Save unfinished documents first.",
-    });
-    if (result.response === 1) autoUpdater.quitAndInstall();
+    if (confirmed !== true)
+      throw Error("Confirm the update installation in the app first");
+    if (!ready) throw Error("No downloaded update is ready to install");
+    setTimeout(() => autoUpdater.quitAndInstall(), 200);
+    return { installing: true };
   });
   ipcMain.handle("printers:list", (event) => {
     trusted(event);
@@ -111,7 +116,7 @@ app.whenReady().then(() => {
         fs.writeFileSync(result.filePath, pdf);
         return { saved: true, path: result.filePath };
       }
-      await new Promise((resolve, reject) =>
+      return await new Promise((resolve, reject) =>
         printWindow.webContents.print(
           {
             silent: false,
@@ -119,17 +124,23 @@ app.whenReady().then(() => {
             deviceName: opts.printer || "",
           },
           (ok, error) =>
-            ok ? resolve() : reject(Error(error || "Print canceled")),
+            ok
+              ? resolve({ printed: true })
+              : /cancel/i.test(error || "")
+                ? resolve({ canceled: true })
+                : reject(Error(error || "Printing failed")),
         ),
       );
-      return { printed: true };
     } finally {
       printWindow.destroy();
     }
   });
   if (app.isPackaged)
     setTimeout(
-      () => autoUpdater.checkForUpdates().catch((e) => update(e.message)),
+      () =>
+        autoUpdater
+          .checkForUpdates()
+          .catch((e) => update("Update check failed: " + e.message, "error")),
       5000,
     );
 });

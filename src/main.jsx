@@ -41,6 +41,7 @@ import {
   exportCSV,
 } from "./printing";
 import "./style.css";
+import { ToastProvider, useToast } from "./toasts";
 const IconButton = ({ children, ...props }) => (
   <button className="icon-button" {...props}>
     {children}
@@ -96,19 +97,28 @@ function App() {
     [page, setPage] = useState("Dashboard"),
     [search, setSearch] = useState(""),
     [modal, setModal] = useState(null),
-    [toast, setToast] = useState(""),
+    [updateStatus, setUpdateStatus] = useState(
+      "Updates are delivered through GitHub Releases.",
+    ),
     [error, setError] = useState(""),
     [busy, setBusy] = useState(false);
-  const notify = (message) => {
-    setToast(message);
-    setTimeout(() => setToast(""), 6000);
-  };
+  const notify = useToast();
+  useEffect(
+    () =>
+      window.desktop?.onUpdate((event) => {
+        const message = typeof event === "string" ? event : event.message;
+        setUpdateStatus(message);
+        notify(message, typeof event === "string" ? "info" : event.type);
+      }),
+    [notify],
+  );
   const refresh = async () => {
     try {
       setState(await api("/state"));
       setError("");
     } catch (e) {
       setError(e.message);
+      notify(e.message, "error");
     }
   };
   useEffect(() => {
@@ -126,6 +136,7 @@ function App() {
     const fn = () => {
       setLogged(false);
       setState(null);
+      notify("Your session expired. Please sign in again.", "error");
     };
     window.addEventListener("auth-expired", fn);
     return () => window.removeEventListener("auth-expired", fn);
@@ -140,6 +151,7 @@ function App() {
       return r;
     } catch (e) {
       setError(e.message);
+      notify(e.message, "error");
       return null;
     } finally {
       setBusy(false);
@@ -234,7 +246,12 @@ function App() {
           <button
             className="profile"
             onClick={async () => {
-              await api("/logout").catch(() => {});
+              try {
+                await api("/logout");
+                notify("Signed out", "info");
+              } catch (e) {
+                notify("Signed out on this device. " + e.message, "warning");
+              }
               sessionStorage.removeItem("token");
               setLogged(false);
             }}
@@ -308,13 +325,7 @@ function App() {
               </button>
             </div>
           </div>
-          {error && (
-            <div role="alert" className="error">
-              <AlertCircle size={18} />
-              {error}
-              <button onClick={() => setError("")}>×</button>
-            </div>
-          )}
+
           {page === "Dashboard" && (
             <Dashboard
               state={state}
@@ -502,7 +513,12 @@ function App() {
           )}
           {page === "Reports" && <Reports state={state} run={run} />}
           {page === "Settings" && (
-            <SettingsPage state={state} run={run} notify={notify} />
+            <SettingsPage
+              state={state}
+              run={run}
+              notify={notify}
+              updates={updateStatus}
+            />
           )}
           <footer>
             <span>
@@ -510,7 +526,7 @@ function App() {
               <span className="muted">· Distribution & accounts</span>
             </span>
             <span>
-              All amounts in PKR <span className="dot-sep">·</span> v1.0.2
+              All amounts in PKR <span className="dot-sep">·</span> v1.0.3
             </span>
           </footer>
         </main>
@@ -574,12 +590,6 @@ function App() {
       )}
       {modal?.kind === "barcodes" && (
         <BarcodeModal items={state.items} onClose={close} run={run} />
-      )}
-      {toast && (
-        <div className="toast" role="status">
-          <Check size={18} />
-          {toast}
-        </div>
       )}
     </div>
   );
@@ -996,18 +1006,69 @@ function DocumentList({
   );
 }
 function Login({ onLogin }) {
+  const notify = useToast();
   const [name, setName] = useState("admin"),
     [password, setPassword] = useState(""),
     [setupKey, setSetupKey] = useState(""),
     [url, setUrl] = useState(apiBase()),
     [setup, setSetup] = useState(false),
     [error, setError] = useState(""),
-    [busy, setBusy] = useState(false);
+    [busy, setBusy] = useState(false),
+    [recovering, setRecovering] = useState(false),
+    [recoveryKey, setRecoveryKey] = useState(""),
+    [newPassword, setNewPassword] = useState(""),
+    [confirmPassword, setConfirmPassword] = useState("");
   useEffect(() => {
     api("/health")
       .then((r) => setSetup(r.setup))
       .catch(() => {});
   }, []);
+  async function submit(e) {
+    e.preventDefault();
+    setBusy(true);
+    setError("");
+    try {
+      const u = new URL(url);
+      if (
+        u.protocol !== "https:" &&
+        !["127.0.0.1", "localhost"].includes(u.hostname)
+      )
+        throw Error("Use HTTPS for your server");
+      localStorage.setItem("api", url.replace(/\/$/, ""));
+      if (recovering) {
+        if (newPassword !== confirmPassword)
+          throw Error("The new passwords do not match");
+        await api("/auth/reset-password", {
+          method: "POST",
+          body: {
+            name,
+            recovery_key: recoveryKey,
+            new_password: newPassword,
+            confirm_password: confirmPassword,
+          },
+        });
+        setRecovering(false);
+        setRecoveryKey("");
+        setNewPassword("");
+        setConfirmPassword("");
+        setPassword("");
+        notify("Password reset. Sign in with your new password.");
+      } else {
+        const r = await api("/auth", {
+          method: "POST",
+          body: { name, password, setup_key: setupKey },
+        });
+        sessionStorage.setItem("token", r.token);
+        notify("Signed in successfully");
+        onLogin();
+      }
+    } catch (e) {
+      setError(e.message);
+      notify(e.message, "error");
+    } finally {
+      setBusy(false);
+    }
+  }
   return (
     <div className="login-page">
       <div className="login-brand">
@@ -1034,89 +1095,143 @@ function Login({ onLogin }) {
         </div>
         <small>BUILT FOR YOUR BUSINESS · PKR</small>
       </div>
-      <form
-        className="login-form"
-        onSubmit={async (e) => {
-          e.preventDefault();
-          setBusy(true);
-          setError("");
-          try {
-            const u = new URL(url);
-            if (
-              u.protocol !== "https:" &&
-              !["127.0.0.1", "localhost"].includes(u.hostname)
-            )
-              throw Error("Use HTTPS for your server");
-            localStorage.setItem("api", url.replace(/\/$/, ""));
-            const r = await api("/auth", {
-              method: "POST",
-              body: { name, password, setup_key: setupKey },
-            });
-            sessionStorage.setItem("token", r.token);
-            onLogin();
-          } catch (e) {
-            setError(e.message);
-          } finally {
-            setBusy(false);
-          }
-        }}
-      >
+      <form className="login-form" onSubmit={submit}>
         <span className="eyebrow">WELCOME TO YOUR WORKSPACE</span>
-        <h1>{setup ? "Set up your store" : "Welcome back"}</h1>
+        <h1>
+          {recovering
+            ? "Reset password"
+            : setup
+              ? "Set up your store"
+              : "Welcome back"}
+        </h1>
         <p>
-          {setup
-            ? "Create the administrator account to get started."
-            : "Sign in to manage your business."}
+          {recovering
+            ? "Use your private server recovery key to set a new password."
+            : setup
+              ? "Create the administrator account to get started."
+              : "Sign in to manage your business."}
         </p>
         <Field
           label="Username"
           autoComplete="username"
           required
           value={name}
+          disabled={busy}
           onChange={(e) => setName(e.target.value)}
         />
-        <Field
-          label="Password"
-          type="password"
-          autoComplete={setup ? "new-password" : "current-password"}
-          minLength={setup ? 12 : 1}
-          required
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-        />
-        {setup && (
-          <Field
-            label="Server setup key"
-            type="password"
-            required
-            value={setupKey}
-            onChange={(e) => setSetupKey(e.target.value)}
-          />
+        {recovering ? (
+          <>
+            <Field
+              label="Recovery key"
+              type="password"
+              required
+              autoComplete="off"
+              maxLength={256}
+              value={recoveryKey}
+              disabled={busy}
+              onChange={(e) => setRecoveryKey(e.target.value)}
+            />
+            <Field
+              label="New password"
+              type="password"
+              required
+              minLength={6}
+              maxLength={72}
+              autoComplete="new-password"
+              value={newPassword}
+              disabled={busy}
+              onChange={(e) => setNewPassword(e.target.value)}
+            />
+            <Field
+              label="Confirm new password"
+              type="password"
+              required
+              minLength={6}
+              maxLength={72}
+              autoComplete="new-password"
+              value={confirmPassword}
+              disabled={busy}
+              onChange={(e) => setConfirmPassword(e.target.value)}
+            />
+            <p className="footnote">
+              Minimum 6 characters. Use the private PASSWORD_RESET_KEY from
+              Hostinger, or your existing SETUP_KEY if a separate recovery key
+              has not been configured. Existing sessions will be signed out.
+            </p>
+          </>
+        ) : (
+          <>
+            <Field
+              label="Password"
+              type="password"
+              autoComplete={setup ? "new-password" : "current-password"}
+              minLength={setup ? 6 : 1}
+              required
+              disabled={busy}
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+            />
+            {setup && (
+              <Field
+                label="Server setup key"
+                type="password"
+                required
+                disabled={busy}
+                value={setupKey}
+                onChange={(e) => setSetupKey(e.target.value)}
+              />
+            )}
+          </>
         )}
         <details>
-          <summary>Server connection & first-time setup</summary>
+          <summary>
+            {recovering
+              ? "Server connection"
+              : "Server connection & first-time setup"}
+          </summary>
           <Field
             label="API server"
             type="url"
             required
             value={url}
+            disabled={busy}
             onChange={(e) => setUrl(e.target.value)}
           />
-          <Field
-            label="Setup key (only required for a new server)"
-            type="password"
-            value={setupKey}
-            onChange={(e) => setSetupKey(e.target.value)}
-          />
+          {!recovering && (
+            <Field
+              label="Setup key (only required for a new server)"
+              type="password"
+              value={setupKey}
+              disabled={busy}
+              onChange={(e) => setSetupKey(e.target.value)}
+            />
+          )}
         </details>
-        {error && (
-          <div className="error" role="alert">
-            {error}
-          </div>
-        )}
+        {error && <div className="error">{error}</div>}
         <button disabled={busy} className="full">
-          {busy ? "Connecting…" : setup ? "Create account" : "Sign in"}
+          {busy
+            ? "Please wait…"
+            : recovering
+              ? "Reset password"
+              : setup
+                ? "Create account"
+                : "Sign in"}
           <ArrowRight size={17} />
+        </button>
+        <button
+          type="button"
+          className="text-button login-recovery"
+          disabled={busy}
+          onClick={() => {
+            setRecovering(!recovering);
+            setError("");
+            setPassword("");
+            setRecoveryKey("");
+            setNewPassword("");
+            setConfirmPassword("");
+          }}
+        >
+          {recovering ? "Back to sign in" : "Forgot password?"}
         </button>
         <p className="login-note">Connected accounting. Confident decisions.</p>
       </form>
@@ -1821,30 +1936,33 @@ function DocumentView({ document: d, state, onClose, run, notify, onConvert }) {
         printer: s.printer,
       }),
     );
-    if (result?.saved) notify("PDF saved: " + result.path);
   }
   async function whatsapp() {
     let phone = (d.phone || "").replace(/\D/g, "");
     if (phone.startsWith("0")) phone = "92" + phone.slice(1);
     if (!/^\d{7,15}$/.test(phone)) {
-      notify("Add a valid WhatsApp phone number to this party first.");
+      notify(
+        "Add a valid WhatsApp phone number to this party first.",
+        "warning",
+      );
       return;
     }
     const message = `${s.business_name || "Usman Stationary"}\n${label(d.type)} ${d.number}\nDate: ${d.date}\n${d.lines.map((l) => `${l.name} × ${l.qty}: ${pkr(l.total)}`).join("\n")}\nTotal: ${pkr(d.total)}\nPaid: ${pkr(d.paid)}\nBalance: ${pkr(d.total - d.paid)}\n${s.invoice_footer || "Thank you for your business."}`;
-    await run(() =>
-      window.desktop
-        ? window.desktop.whatsapp({ phone, message })
-        : Promise.resolve(
-            window.open(
-              "https://wa.me/" + phone + "?text=" + encodeURIComponent(message),
-              "_blank",
-              "noopener,noreferrer",
-            ),
-          ),
-    );
-    notify(
-      "WhatsApp opened with document details. To share the PDF, save it and attach it in WhatsApp.",
-    );
+    const result = await run(async () => {
+      if (window.desktop) await window.desktop.whatsapp({ phone, message });
+      else
+        window.open(
+          "https://wa.me/" + phone + "?text=" + encodeURIComponent(message),
+          "_blank",
+          "noopener,noreferrer",
+        );
+      return { opened: true };
+    });
+    if (result?.opened)
+      notify(
+        "WhatsApp opened with document details. To share the PDF, save it and attach it in WhatsApp.",
+        "info",
+      );
   }
   return (
     <Modal
@@ -2251,6 +2369,7 @@ function DataManagement({ run, notify, onChanged }) {
       setDialog((current) => (current ? { ...current, preview } : null));
     } catch (e) {
       setError(e.message);
+      notify(e.message, "error");
     } finally {
       setLoading(false);
     }
@@ -2282,9 +2401,10 @@ function DataManagement({ run, notify, onChanged }) {
         throw Error("Choose a valid Usman Stationary JSON backup");
       await openDialog("restore", backup, file.name);
     } catch (e) {
-      setError(
-        e instanceof SyntaxError ? "This file is not valid JSON" : e.message,
-      );
+      const message =
+        e instanceof SyntaxError ? "This file is not valid JSON" : e.message;
+      setError(message);
+      notify(message, "error");
     }
   }
   async function submit(e) {
@@ -2512,7 +2632,97 @@ function DataManagement({ run, notify, onChanged }) {
     </>
   );
 }
-function SettingsPage({ state, run, notify }) {
+function PasswordSettings({ run }) {
+  const notify = useToast();
+  const [current, setCurrent] = useState(""),
+    [password, setPassword] = useState(""),
+    [confirmation, setConfirmation] = useState(""),
+    [pending, setPending] = useState(false),
+    [error, setError] = useState("");
+  async function submit(e) {
+    e.preventDefault();
+    setError("");
+    if (password !== confirmation) {
+      setError("The new passwords do not match");
+      notify("The new passwords do not match", "error");
+      return;
+    }
+    setPending(true);
+    try {
+      const result = await run(async () => {
+        try {
+          return await api("/password", {
+            method: "POST",
+            body: {
+              current_password: current,
+              new_password: password,
+              confirm_password: confirmation,
+            },
+          });
+        } catch (e) {
+          setError(e.message);
+          throw e;
+        }
+      }, "Password changed. Other devices must sign in again.");
+      if (result) {
+        setCurrent("");
+        setPassword("");
+        setConfirmation("");
+      }
+    } finally {
+      setPending(false);
+    }
+  }
+  return (
+    <form className="panel settings-card" onSubmit={submit}>
+      <h2>Change password</h2>
+      <p>
+        Set a new password with at least 6 characters. Your business data stays
+        unchanged.
+      </p>
+      <Field
+        label="Current password"
+        type="password"
+        autoComplete="current-password"
+        required
+        disabled={pending}
+        value={current}
+        onChange={(e) => setCurrent(e.target.value)}
+      />
+      <Field
+        label="New password"
+        type="password"
+        autoComplete="new-password"
+        minLength={6}
+        maxLength={72}
+        required
+        disabled={pending}
+        value={password}
+        onChange={(e) => setPassword(e.target.value)}
+      />
+      <Field
+        label="Confirm new password"
+        type="password"
+        autoComplete="new-password"
+        minLength={6}
+        maxLength={72}
+        required
+        disabled={pending}
+        value={confirmation}
+        onChange={(e) => setConfirmation(e.target.value)}
+      />
+      {error && <div className="error">{error}</div>}
+      <button disabled={pending}>
+        {pending ? "Changing password…" : "Change password"}
+      </button>
+      <p className="footnote">
+        Forgotten passwords can be reset from the sign-in screen using your
+        private server recovery key.
+      </p>
+    </form>
+  );
+}
+function SettingsPage({ state, run, notify, updates }) {
   const [b, setB] = useState({
       business_name: "Usman Stationary",
       address: "",
@@ -2524,15 +2734,13 @@ function SettingsPage({ state, run, notify }) {
       ...state.settings,
     }),
     [printers, setPrinters] = useState([]),
-    [updates, setUpdates] = useState(
-      "Updates are delivered through GitHub Releases.",
-    );
+    [installDialog, setInstallDialog] = useState(false),
+    [installing, setInstalling] = useState(false);
   useEffect(() => {
     window.desktop
       ?.printers()
       .then(setPrinters)
-      .catch((e) => notify(e.message));
-    return window.desktop?.onUpdate(setUpdates);
+      .catch((e) => notify(e.message, "error"));
   }, []);
   return (
     <div className="settings-grid">
@@ -2599,29 +2807,32 @@ function SettingsPage({ state, run, notify }) {
       <div>
         <section className="panel settings-card">
           <h2>App updates</h2>
-          <p>Installed version 1.0.2</p>
+          <p>Installed version 1.0.3</p>
           <div className="notice">{updates}</div>
           <div className="actions">
             <button
               className="secondary"
-              onClick={async () =>
-                setUpdates(
-                  window.desktop
-                    ? await window.desktop.checkUpdates()
-                    : "Open the Windows desktop app to check for updates.",
-                )
-              }
+              onClick={async () => {
+                try {
+                  if (window.desktop) await window.desktop.checkUpdates();
+                  else
+                    notify(
+                      "Open the Windows desktop app to check for updates.",
+                      "info",
+                    );
+                } catch (e) {
+                  notify(e.message, "error");
+                }
+              }}
             >
               <RefreshCw size={16} /> Check updates
             </button>
             <button
               className="secondary"
               onClick={() =>
-                run(() =>
-                  window.desktop
-                    ? window.desktop.installUpdate()
-                    : Promise.reject(Error("Use the installed Windows app")),
-                )
+                window.desktop
+                  ? setInstallDialog(true)
+                  : notify("Use the installed Windows app", "warning")
               }
             >
               Install update
@@ -2631,6 +2842,7 @@ function SettingsPage({ state, run, notify }) {
             Updates download automatically. Install when your work is saved.
           </p>
         </section>
+        <PasswordSettings run={run} />
         <DataManagement
           run={run}
           notify={notify}
@@ -2657,7 +2869,48 @@ function SettingsPage({ state, run, notify }) {
           </div>
         </section>
       </div>
+      {installDialog && (
+        <Modal
+          title="Install update"
+          onClose={() => !installing && setInstallDialog(false)}
+        >
+          <p>
+            Restart Usman Stationary to install the downloaded update. Save any
+            unfinished documents before continuing.
+          </p>
+          <div className="modal-actions">
+            <button
+              className="secondary"
+              disabled={installing}
+              onClick={() => setInstallDialog(false)}
+            >
+              Cancel
+            </button>
+            <button
+              disabled={installing}
+              onClick={async () => {
+                setInstalling(true);
+                try {
+                  await window.desktop.installUpdate(true);
+                  notify("Restarting to install the update…", "info");
+                  setInstallDialog(false);
+                } catch (e) {
+                  notify(e.message, "error");
+                } finally {
+                  setInstalling(false);
+                }
+              }}
+            >
+              Restart and install
+            </button>
+          </div>
+        </Modal>
+      )}
     </div>
   );
 }
-createRoot(document.getElementById("root")).render(<App />);
+createRoot(document.getElementById("root")).render(
+  <ToastProvider>
+    <App />
+  </ToastProvider>,
+);

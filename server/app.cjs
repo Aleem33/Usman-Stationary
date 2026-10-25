@@ -5,6 +5,7 @@ const path = require("node:path");
 const { openDatabase } = require("./db.cjs");
 const { post, getDocument, saveItem, text, reports } = require("./domain.cjs");
 const { report } = require("./reports.cjs");
+const { validatePassword, createPasswordHandlers } = require("./passwords.cjs");
 const {
   createBackup,
   dataSummary,
@@ -50,11 +51,13 @@ function createApp(db = openDatabase()) {
     res.json({
       ok: true,
       setup: !(await db.prepare("SELECT id FROM users LIMIT 1").get()),
-      version: "1.0.4",
+      version: "1.0.5",
       qa: process.env.QA_MODE === "1" && process.env.NODE_ENV !== "production",
     }),
   );
   const attempts = new Map();
+  const passwordHandlers = createPasswordHandlers(db);
+  app.post("/api/auth/reset-password", wrap(passwordHandlers.reset));
   app.post(
     "/api/auth",
     wrap(async (req, res) => {
@@ -84,9 +87,7 @@ function createApp(db = openDatabase()) {
             error:
               "Ask the server administrator for the SETUP_KEY to create your account",
           });
-        const password = text(req.body.password);
-        if (password.length < 12)
-          throw Error("Use at least 12 characters for the password");
+        const password = validatePassword(req.body.password);
         await db
           .prepare("INSERT INTO users(id,name,password) VALUES(1,?,?)")
           .run(text(req.body.name), bcrypt.hashSync(password, 12));
@@ -94,7 +95,9 @@ function createApp(db = openDatabase()) {
       }
       if (
         req.body.name !== user.name ||
-        !bcrypt.compareSync(req.body.password || "", user.password)
+        typeof req.body.password !== "string" ||
+        req.body.password.length > 200 ||
+        !bcrypt.compareSync(req.body.password, user.password)
       )
         return res.status(401).json({
           error: "Invalid username or password",
@@ -124,6 +127,7 @@ function createApp(db = openDatabase()) {
     req.userId = session.user_id;
     next();
   });
+  app.post("/api/password", wrap(passwordHandlers.change));
   app.post("/api/logout", async (req, res) => {
     await db.prepare("DELETE FROM sessions WHERE token=?").run(req.session);
     res.json({
@@ -330,14 +334,18 @@ function createApp(db = openDatabase()) {
   app.use(express.static(path.join(__dirname, "../dist")));
   app.use((err, req, res, next) => {
     console.error(err.message);
-    res.status(err.status === 413 ? 413 : 400).json({
-      error:
-        err.status === 413
-          ? "Backup upload is too large (maximum 20 MB)"
-          : err.message.includes("UNIQUE") || err.code === "ER_DUP_ENTRY"
-            ? "This barcode or document already exists"
-            : err.message,
-    });
+    res
+      .status(
+        [400, 403, 409, 413, 429, 503].includes(err.status) ? err.status : 400,
+      )
+      .json({
+        error:
+          err.status === 413
+            ? "Backup upload is too large (maximum 20 MB)"
+            : err.message.includes("UNIQUE") || err.code === "ER_DUP_ENTRY"
+              ? "This barcode or document already exists"
+              : err.message,
+      });
   });
   return app;
 }

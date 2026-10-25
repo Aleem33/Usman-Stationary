@@ -306,6 +306,49 @@ test(
         (await request("/auth", { name: "admin", password })).status,
         200,
       );
+      assert.equal(
+        (
+          await request("/password", {
+            current_password: password,
+            new_password: "new123",
+            confirm_password: "new123",
+          })
+        ).status,
+        200,
+      );
+      assert.equal(
+        (await request("/state")).status,
+        200,
+        "Password change must preserve the current session",
+      );
+      assert.equal(
+        (await request("/auth", { name: "admin", password })).status,
+        401,
+      );
+      process.env.PASSWORD_RESET_KEY = "isolated-mysql-private-recovery-key";
+      assert.equal(
+        (
+          await request("/auth/reset-password", {
+            name: "admin",
+            recovery_key: process.env.PASSWORD_RESET_KEY,
+            new_password: "reset6",
+            confirm_password: "reset6",
+          })
+        ).status,
+        200,
+      );
+      assert.equal((await request("/state")).status, 401);
+      const recovered = await request("/auth", {
+        name: "admin",
+        password: "reset6",
+      });
+      assert.equal(recovered.status, 200);
+      token = recovered.body.token;
+      assert.equal(
+        (await request("/state")).body.items.length,
+        2,
+        "Password recovery must preserve business data",
+      );
       assert.equal((await request("/logout", {})).status, 200);
       assert.equal((await request("/state")).status, 401);
     } finally {

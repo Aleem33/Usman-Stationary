@@ -1,3 +1,4 @@
+import { emitToast } from "./toasts";
 import { pkr, label, download } from "./api";
 const esc = (s) =>
   String(s ?? "").replace(
@@ -52,12 +53,21 @@ export async function barcodeHTML(items, copies = 1) {
   );
 }
 export async function printHTML(html, options = {}) {
-  if (window.desktop) return window.desktop.print({ html, ...options });
+  if (window.desktop) {
+    const result = await window.desktop.print({ html, ...options });
+    if (result?.saved) emitToast("PDF saved: " + result.path);
+    else if (result?.printed) emitToast("Print job sent to the printer");
+    else if (result?.canceled)
+      emitToast("Printing or PDF export canceled", "info");
+    return result;
+  }
   const w = window.open("", "_blank");
   if (!w) throw Error("Allow pop-ups to print");
   w.document.write(html);
   w.document.close();
+  emitToast("Print preview opened", "info");
   setTimeout(() => w.print(), 500);
+  return { preview: true };
 }
 export function reportHTML(r, s) {
   return page(
@@ -95,4 +105,5 @@ export function exportCSV(r) {
         .join("\r\n"),
     "text/csv;charset=utf-8",
   );
+  emitToast("Report CSV download started");
 }
