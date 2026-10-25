@@ -70,7 +70,17 @@ test("API requires setup key, authenticates, persists data and revokes sessions"
     assert.equal(d.body.total, 15000);
     assert.equal((await request("/backup")).body.tables.documents.length, 1);
     assert.equal((await request("/logout", {})).status, 200);
+    assert.equal((await request("/logout", {})).status, 200);
     assert.equal((await request("/state")).status, 401);
+    assert.equal(
+      (
+        await request("/auth", {
+          name: "admin",
+          password: "long-test-password",
+        })
+      ).status,
+      200,
+    );
   } finally {
     await new Promise((r) => server.close(r));
     db.close();

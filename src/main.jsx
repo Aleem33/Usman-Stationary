@@ -113,10 +113,15 @@ function App() {
     [notify],
   );
   const refresh = async () => {
+    const token = sessionStorage.getItem("token");
+    if (!token) return;
     try {
-      setState(await api("/state"));
+      const data = await api("/state");
+      if (sessionStorage.getItem("token") !== token) return;
+      setState(data);
       setError("");
     } catch (e) {
+      if (sessionStorage.getItem("token") !== token) return;
       setError(e.message);
       notify(e.message, "error");
     }
@@ -142,14 +147,17 @@ function App() {
     return () => window.removeEventListener("auth-expired", fn);
   }, []);
   async function run(fn, success) {
+    const token = sessionStorage.getItem("token");
     setBusy(true);
     setError("");
     try {
       const r = await fn();
+      if (sessionStorage.getItem("token") !== token) return null;
       if (success) notify(success);
       await refresh();
       return r;
     } catch (e) {
+      if (sessionStorage.getItem("token") !== token) return null;
       setError(e.message);
       notify(e.message, "error");
       return null;
@@ -246,14 +254,30 @@ function App() {
           <button
             className="profile"
             onClick={async () => {
-              try {
-                await api("/logout");
-                notify("Signed out", "info");
-              } catch (e) {
-                notify("Signed out on this device. " + e.message, "warning");
-              }
+              const token = sessionStorage.getItem("token");
               sessionStorage.removeItem("token");
               setLogged(false);
+              setState(null);
+              setPage("Dashboard");
+              setError("");
+              try {
+                if (token)
+                  await api("/logout", {
+                    method: "POST",
+                    headers: { Authorization: "Bearer " + token },
+                    body: {},
+                    timeoutMs: 10000,
+                  });
+                if (!sessionStorage.getItem("token"))
+                  notify("Signed out", "info");
+              } catch (e) {
+                if (!sessionStorage.getItem("token"))
+                  notify(
+                    "Signed out on this device. Server sign-out could not be confirmed. " +
+                      e.message,
+                    "warning",
+                  );
+              }
             }}
           >
             <span className="avatar pale">A</span>
@@ -526,7 +550,7 @@ function App() {
               <span className="muted">· Distribution & accounts</span>
             </span>
             <span>
-              All amounts in PKR <span className="dot-sep">·</span> v1.0.3
+              All amounts in PKR <span className="dot-sep">·</span> v1.0.4
             </span>
           </footer>
         </main>
@@ -2807,7 +2831,7 @@ function SettingsPage({ state, run, notify, updates }) {
       <div>
         <section className="panel settings-card">
           <h2>App updates</h2>
-          <p>Installed version 1.0.3</p>
+          <p>Installed version 1.0.4</p>
           <div className="notice">{updates}</div>
           <div className="actions">
             <button

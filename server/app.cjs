@@ -51,7 +51,7 @@ function createApp(db = openDatabase()) {
     res.json({
       ok: true,
       setup: !(await db.prepare("SELECT id FROM users LIMIT 1").get()),
-      version: "1.0.5",
+      version: "1.0.6",
       qa: process.env.QA_MODE === "1" && process.env.NODE_ENV !== "production",
     }),
   );
@@ -114,6 +114,16 @@ function createApp(db = openDatabase()) {
       });
     }),
   );
+  // Revoking the same token twice is safe, including after session expiry.
+  app.post(
+    "/api/logout",
+    wrap(async (req, res) => {
+      const token = (req.headers.authorization || "").replace(/^Bearer /i, "");
+      if (token)
+        await db.prepare("DELETE FROM sessions WHERE token=?").run(hash(token));
+      res.json({ ok: true });
+    }),
+  );
   app.use("/api", async (req, res, next) => {
     const token = (req.headers.authorization || "").replace(/^Bearer /, "");
     const session = await db
@@ -128,12 +138,6 @@ function createApp(db = openDatabase()) {
     next();
   });
   app.post("/api/password", wrap(passwordHandlers.change));
-  app.post("/api/logout", async (req, res) => {
-    await db.prepare("DELETE FROM sessions WHERE token=?").run(req.session);
-    res.json({
-      ok: true,
-    });
-  });
   app.get(
     "/api/state",
     wrap(async (req, res) =>
@@ -330,6 +334,13 @@ function createApp(db = openDatabase()) {
         }),
       );
     }),
+  );
+  app.use("/api", (req, res) =>
+    res
+      .status(404)
+      .json({
+        error: "This API endpoint is unavailable. Update the app and server.",
+      }),
   );
   app.use(express.static(path.join(__dirname, "../dist")));
   app.use((err, req, res, next) => {
