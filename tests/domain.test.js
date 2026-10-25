@@ -4,6 +4,31 @@ const { openDatabase } = require("../server/db.cjs");
 const { post, saveItem } = require("../server/domain.cjs");
 const { report } = require("../server/reports.cjs");
 const { reports } = require("../server/catalog.cjs");
+test("rejects quantities that MySQL would round in stock columns", async () => {
+  const f = await fixture();
+  try {
+    await assert.rejects(
+      () =>
+        document(f, "sale", {
+          lines: [{ item_id: f.item, qty: 0.0004, price: 100 }],
+        }),
+      /three decimal/,
+    );
+    await assert.rejects(
+      () =>
+        saveItem(f.db, {
+          name: "Fraction",
+          barcode: "FRACTION",
+          cost: 1,
+          price: 2,
+          stock: 0.0004,
+        }),
+      /three decimal/,
+    );
+  } finally {
+    f.db.close();
+  }
+});
 async function fixture() {
   const db = openDatabase(":memory:");
   const item = await saveItem(db, {

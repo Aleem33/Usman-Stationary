@@ -106,6 +106,8 @@ async function post(db, b) {
         seen.add(item.id);
         const qty = num(input.qty);
         if (qty <= 0 || qty > 1e7) throw Error("Quantity must be positive");
+        if (Math.abs(qty * 1000 - Math.round(qty * 1000)) > 0.000001)
+          throw Error("Quantity supports at most three decimal places");
         let price = money(input.price),
           unitCost = item.cost;
         if (isReturn) {
@@ -363,6 +365,12 @@ async function saveItem(db, b) {
       stock = num(b.stock || 0),
       min = num(b.min_stock ?? 5);
     if (stock < 0 || min < 0) throw Error("Stock cannot be negative");
+    if (
+      [stock, min].some(
+        (q) => Math.abs(q * 1000 - Math.round(q * 1000)) > 0.000001,
+      )
+    )
+      throw Error("Stock supports at most three decimal places");
     if (
       stock > 1e7 ||
       min > 1e7 ||
