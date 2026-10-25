@@ -30,6 +30,7 @@ async function openMySQL(config = process.env) {
   const context = new AsyncLocalStorage();
   function sqlForMySQL(sql) {
     return sql
+      .replace(/\b(FROM|JOIN|INTO|UPDATE) lines\b/gi, "$1 `lines`")
       .replace(/settings\(key,value\)/g, "settings(`key`,value)")
       .replace(
         /ON CONFLICT\(key\) DO UPDATE SET value=excluded.value/g,
