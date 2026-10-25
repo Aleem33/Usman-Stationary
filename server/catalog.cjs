@@ -1,0 +1,45 @@
+const reports = {
+  Transaction: [
+    "Sale Report",
+    "Purchase Report",
+    "Day Book",
+    "All Transactions",
+    "Bill Wise Profit",
+    "Profit & Loss",
+    "Cashflow",
+    "Balance Sheet",
+    "Trial Balance",
+  ],
+  "Party reports": [
+    "Party Statement",
+    "Party Wise Profit & Loss",
+    "All Parties Report",
+    "Party Report by Items",
+    "Sale/Purchase by Party",
+  ],
+  "Item / Stock reports": [
+    "Stock Summary Report",
+    "Item Report by Party",
+    "Item Wise Profit & Loss",
+    "Low Stock Summary Report",
+    "Item Detail Report",
+    "Stock Detail Report",
+    "Sale/Purchase By Item Category",
+    "Stock summary By Item Category",
+    "Item Batch Report",
+    "Item Serial Report",
+    "Item Wise Discount",
+  ],
+  "Business status": ["Bank Statement", "Discount Report"],
+  Taxes: ["Tax Report", "Tax Rate Report"],
+  "Expense reports": [
+    "Expense Transaction Report",
+    "Expense Category Report",
+    "Expense Item Report",
+  ],
+  "Sale / Purchase Order reports": [
+    "Sale/Purchase Order Transaction Report",
+    "Sale/Purchase Order Item Report",
+  ],
+};
+module.exports = { reports };
