@@ -15,11 +15,16 @@ const { openConfiguredDatabase } = require("../server/db.cjs");
     "movements",
     "settings",
     "audit",
+    "storefront_requests",
   ];
   if (
     data.version !== 1 ||
     !data.tables ||
-    !names.every((n) => Array.isArray(data.tables[n]))
+    !names.every(
+      (n) =>
+        Array.isArray(data.tables[n]) ||
+        (n === "storefront_requests" && data.tables[n] == null),
+    )
   )
     throw Error("Invalid backup");
   const db = await openConfiguredDatabase();
@@ -32,7 +37,7 @@ const { openConfiguredDatabase } = require("../server/db.cjs");
           );
       for (const name of names) {
         const allowed = await db.columns(name);
-        for (const row of data.tables[name]) {
+        for (const row of data.tables[name] || []) {
           const keys = Object.keys(row);
           if (!keys.length || keys.some((k) => !allowed.includes(k)))
             throw Error("Invalid backup columns");

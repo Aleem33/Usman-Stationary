@@ -42,6 +42,7 @@ import {
 } from "./printing";
 import "./style.css";
 import { ToastProvider, useToast } from "./toasts";
+import { StorefrontInbox } from "./storefront";
 const IconButton = ({ children, ...props }) => (
   <button className="icon-button" {...props}>
     {children}
@@ -365,6 +366,7 @@ function App() {
               create={create}
               view={view}
               onAddParty={(onSaved) => setModal({ kind: "party", onSaved })}
+              refresh={refresh}
               onSaved={(d) => setModal({ kind: "view", document: d })}
             />
           )}
@@ -553,7 +555,7 @@ function App() {
               <span className="muted">· Distribution & accounts</span>
             </span>
             <span>
-              All amounts in PKR <span className="dot-sep">·</span> v1.0.5
+              All amounts in PKR <span className="dot-sep">·</span> v1.0.6
             </span>
           </footer>
         </main>
@@ -601,7 +603,13 @@ function App() {
             error={error}
             onSave={(b) =>
               run(
-                () => api("/documents", { method: "POST", body: b }),
+                () =>
+                  api(
+                    modal.requestId
+                      ? `/storefront/requests/${modal.requestId}/fulfill`
+                      : "/documents",
+                    { method: "POST", body: b },
+                  ),
                 "Document saved",
               ).then((d) => d && setModal({ kind: "view", document: d }))
             }
@@ -615,9 +623,16 @@ function App() {
           onClose={close}
           run={run}
           notify={notify}
-          onConvert={(type, d) =>
-            setModal({ kind: "document", type, initial: d })
-          }
+          onConvert={(type, d) => {
+            if (d.storefront_request?.status === "fulfilled")
+              return view({ id: d.storefront_request.document_id });
+            setModal({
+              kind: "document",
+              type,
+              initial: d,
+              requestId: d.storefront_request?.id,
+            });
+          }}
         />
       )}
       {modal?.kind === "barcodes" && (
@@ -1933,9 +1948,13 @@ function TransactionForm({
     </form>
   );
 }
-function POS({ state, run, onSaved, create, view, onAddParty }) {
+function POS({ state, run, onSaved, create, view, onAddParty, refresh }) {
   const [key, setKey] = useState(0),
     [busy, setBusy] = useState(false);
+  useEffect(() => {
+    const timer = setInterval(refresh, 15000);
+    return () => clearInterval(timer);
+  }, [refresh]);
   return (
     <>
       <section className="panel pos-shortcuts" aria-label="POS quick actions">
@@ -2024,6 +2043,13 @@ function POS({ state, run, onSaved, create, view, onAddParty }) {
           </div>
         </div>
       </section>
+      <StorefrontInbox
+        state={state}
+        run={run}
+        onSaved={onSaved}
+        view={view}
+        refresh={refresh}
+      />
       <div className="panel pos-panel">
         <div className="section-heading">
           <div>
@@ -2946,7 +2972,7 @@ function SettingsPage({ state, run, notify, updates }) {
       <div>
         <section className="panel settings-card">
           <h2>App updates</h2>
-          <p>Installed version 1.0.5</p>
+          <p>Installed version 1.0.6</p>
           <div className="notice">{updates}</div>
           <div className="actions">
             <button

@@ -9,8 +9,10 @@ const TABLES = [
   "movements",
   "settings",
   "audit",
+  "storefront_requests",
 ];
 const DELETE_ORDER = [
+  "storefront_requests",
   "lines",
   "ledger",
   "movements",
@@ -27,16 +29,18 @@ function fingerprint(tables) {
     .update(
       JSON.stringify(
         Object.fromEntries(
-          TABLES.map((table) => [
-            table,
-            tables[table].map((row) =>
-              Object.fromEntries(
-                Object.keys(row)
-                  .sort()
-                  .map((key) => [key, row[key]]),
+          TABLES.filter((table) => Object.hasOwn(tables, table)).map(
+            (table) => [
+              table,
+              tables[table].map((row) =>
+                Object.fromEntries(
+                  Object.keys(row)
+                    .sort()
+                    .map((key) => [key, row[key]]),
+                ),
               ),
-            ),
-          ]),
+            ],
+          ),
         ),
       ),
     )
@@ -81,7 +85,9 @@ async function validateBackup(db, backup) {
     !backup.tables ||
     typeof backup.tables !== "object" ||
     Array.isArray(backup.tables) ||
-    Object.keys(backup.tables).length !== TABLES.length ||
+    !TABLES.filter((table) => table !== "storefront_requests").every((table) =>
+      Object.hasOwn(backup.tables, table),
+    ) ||
     Object.keys(backup.tables).some((table) => !TABLES.includes(table))
   )
     throw Error("Invalid business backup. Login data cannot be imported.");
@@ -95,6 +101,8 @@ async function validateBackup(db, backup) {
     throw Error("Backup must be 20 MB or smaller");
   let totalRows = 0;
   for (const table of TABLES) {
+    if (table === "storefront_requests" && !Object.hasOwn(backup.tables, table))
+      continue;
     const rows = backup.tables[table];
     if (!Array.isArray(rows)) throw Error("Missing backup table: " + table);
     totalRows += rows.length;
@@ -173,7 +181,41 @@ async function validateBackup(db, backup) {
   }
   if (balance !== 0 || [...perDocument.values()].some((value) => value !== 0))
     throw Error("Backup accounting entries do not balance");
-  return backup;
+  for (const request of backup.tables.storefront_requests || []) {
+    let payload;
+    try {
+      payload = JSON.parse(request.payload);
+    } catch {
+      throw Error("Invalid store request in backup");
+    }
+    if (
+      !["pending", "accepted", "fulfilled", "rejected"].includes(
+        request.status,
+      ) ||
+      !["customer", "supplier"].includes(request.role) ||
+      !Array.isArray(payload.lines) ||
+      !payload.lines.length ||
+      payload.lines.length > 100 ||
+      !Number.isSafeInteger(payload.total) ||
+      payload.total < 0 ||
+      payload.lines.some(
+        (l) =>
+          !Number.isSafeInteger(l.item_id) ||
+          !Number.isFinite(l.qty) ||
+          l.qty <= 0 ||
+          !Number.isSafeInteger(l.price) ||
+          l.price < 0,
+      )
+    )
+      throw Error("Invalid store request in backup");
+  }
+  return {
+    ...backup,
+    tables: {
+      ...backup.tables,
+      storefront_requests: backup.tables.storefront_requests || [],
+    },
+  };
 }
 async function clearBusinessData(db) {
   // Clear self references before deleting invoices, without disabling foreign keys.
@@ -193,7 +235,7 @@ async function replaceBusinessData(
     throw Error("Invalid data operation");
   if (typeof expected !== "string" || !/^[a-f0-9]{64}$/.test(expected))
     throw Error("Refresh the data preview before continuing");
-  if (mode === "restore") await validateBackup(db, backup);
+  if (mode === "restore") backup = await validateBackup(db, backup);
   return db.transaction(async () => {
     const before = await readBackup(db);
     if (before.checksum !== expected)

@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; base-uri 'none'; form-action 'self'"
+    />
+    <meta
+      name="description"
+      content="Browse Usman Stationary products and send an order or supplier offer for review."
+    />
+    <title>Usman Stationary · Product store</title>
+    <link rel="stylesheet" href="/usmanstationary/store.css" />
+    <script src="/usmanstationary/store.js" defer></script>
+  </head>
+  <body>
+    <header class="site-header">
+      <a href="/usmanstationary/" class="brand"
+        ><span class="brand-mark">U<span>▥</span></span
+        ><span id="business-name">Usman Stationary</span></a
+      ><span class="currency">Prices in PKR</span>
+      <a class="request-jump" href="#your-request"
+        >View request (<span id="cart-count">0</span>)</a
+      >
+    </header>
+    <main>
+      <section class="hero">
+        <p class="eyebrow">YOUR EVERYDAY BUSINESS ESSENTIALS</p>
+        <h1>Good supplies.<br />A simpler way to order.</h1>
+        <p>
+          Browse our catalog, choose your products and send your request. Our
+          team will review it and contact you to confirm.
+        </p>
+        <div id="business-contact"></div>
+      </section>
+      <div class="workspace">
+        <section class="catalog" aria-label="Product catalog">
+          <div class="catalog-top">
+            <h2>Explore the catalog <span id="item-count"></span></h2>
+            <label
+              >Search products<input
+                id="search"
+                type="search"
+                placeholder="Name, category or barcode" /></label
+            ><label
+              >Category<select id="category">
+                <option value="">All categories</option>
+              </select></label
+            >
+          </div>
+          <p id="load-status" role="status">Loading products…</p>
+          <button id="retry" class="secondary" hidden>Try again</button>
+          <div id="products" class="products"></div>
+        </section>
+        <aside class="order-panel" id="your-request" aria-label="Your request">
+          <div class="order-title">
+            <span class="eyebrow">LET’S GET STARTED</span>
+            <h2>Your request</h2>
+          </div>
+          <form id="order-form">
+            <label
+              >I am a<select id="role">
+                <option value="customer">Customer · I want to buy</option>
+                <option value="supplier">Supplier · I want to supply</option>
+              </select></label
+            >
+            <p class="hint" id="role-help">
+              Choose products to send a sales order request to Usman Stationary.
+            </p>
+            <div id="cart" class="cart"></div>
+            <div class="total">
+              <span>Estimated total</span><strong id="total">Rs 0.00</strong>
+            </div>
+            <p class="hint">
+              Final prices, taxes, availability and delivery are confirmed by
+              the store. No payment is taken here.
+            </p>
+            <label
+              >Your name / business<input
+                id="name"
+                name="name"
+                autocomplete="organization"
+                required
+                maxlength="200"
+            /></label>
+            <label
+              >WhatsApp / phone<input
+                id="phone"
+                name="phone"
+                type="tel"
+                autocomplete="tel"
+                required
+                maxlength="30"
+                placeholder="03001234567"
+            /></label>
+            <label
+              >Address<input
+                id="address"
+                name="address"
+                autocomplete="street-address"
+                maxlength="300"
+            /></label>
+            <label
+              >Notes / delivery instructions<textarea
+                id="notes"
+                maxlength="1000"
+                rows="3"
+              ></textarea>
+            </label>
+            <div class="honeypot" aria-hidden="true">
+              <label
+                >Website<input id="website" tabindex="-1" autocomplete="off"
+              /></label>
+            </div>
+            <p id="form-error" class="error" role="alert" hidden></p>
+            <button id="submit" type="submit" disabled>
+              Send order request
+            </button>
+            <p class="hint">
+              By submitting, you share these details with the store so they can
+              respond to your request.
+            </p>
+          </form>
+          <section id="confirmation" hidden aria-live="polite">
+            <span class="success-icon">✓</span>
+            <h2>Request received</h2>
+            <p>Your reference</p>
+            <strong id="reference"></strong>
+            <p>
+              The store will review your request and contact you. Keep this
+              reference for follow-up.
+            </p>
+            <button id="new-request">Create another request</button>
+          </section>
+        </aside>
+      </div>
+    </main>
+    <footer>
+      <span id="footer-name">Usman Stationary</span
+      ><span>Orders made easy · PKR</span>
+    </footer>
+  </body>
+</html>

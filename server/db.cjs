@@ -16,6 +16,7 @@ function openDatabase(file = process.env.DB_PATH || "data/store.db") {
  CREATE TABLE IF NOT EXISTS ledger(id INTEGER PRIMARY KEY,document_id INTEGER REFERENCES documents(id),date TEXT NOT NULL,account TEXT NOT NULL,debit INTEGER NOT NULL DEFAULT 0,credit INTEGER NOT NULL DEFAULT 0,party_id INTEGER REFERENCES parties(id),memo TEXT NOT NULL DEFAULT '');
  CREATE TABLE IF NOT EXISTS movements(id INTEGER PRIMARY KEY,document_id INTEGER REFERENCES documents(id),item_id INTEGER REFERENCES items(id),date TEXT NOT NULL,qty REAL NOT NULL,cost INTEGER NOT NULL);
  CREATE TABLE IF NOT EXISTS audit(id INTEGER PRIMARY KEY,date TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,action TEXT NOT NULL,detail TEXT NOT NULL);
+ CREATE TABLE IF NOT EXISTS storefront_requests(id INTEGER PRIMARY KEY,submission_key TEXT UNIQUE NOT NULL,submission_hash TEXT NOT NULL,code TEXT UNIQUE NOT NULL,role TEXT NOT NULL,contact_name TEXT NOT NULL,phone TEXT NOT NULL,address TEXT NOT NULL DEFAULT '',notes TEXT NOT NULL DEFAULT '',payload TEXT NOT NULL,status TEXT NOT NULL DEFAULT 'pending',order_id INTEGER REFERENCES documents(id),document_id INTEGER REFERENCES documents(id),created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,updated_at TEXT NOT NULL DEFAULT '');
  `);
   db.dialect = "sqlite";
   db.columns = async (table) =>

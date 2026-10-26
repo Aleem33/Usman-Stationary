@@ -1162,6 +1162,69 @@ footer {
 .pos-recent > h2 {
   margin-bottom: 14px;
 }
+.storefront-inbox {
+  margin-bottom: 20px;
+}
+.storefront-inbox .section-heading {
+  flex-wrap: wrap;
+  gap: 14px;
+}
+.storefront-inbox .actions {
+  flex-wrap: wrap;
+}
+.store-link {
+  display: inline-flex;
+  gap: 8px;
+  align-items: center;
+  padding: 10px 14px;
+  color: #176149;
+  border: 1px solid #dce4d8;
+  border-radius: 6px;
+  text-decoration: none;
+  font-size: 12px;
+  font-weight: 600;
+}
+.store-request-filter {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 15px;
+  padding: 0 22px 15px;
+}
+.store-request-filter label {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 12px;
+}
+.store-request-filter span {
+  color: #87947d;
+  font-size: 11px;
+}
+.store-request-empty {
+  padding: 0 22px 22px;
+  color: #7b8971;
+  font-size: 12px;
+}
+.store-request-detail {
+  padding: 0 24px 24px;
+}
+.store-contact {
+  padding: 18px 0;
+}
+.store-contact p {
+  color: #74836a;
+  font-size: 13px;
+  margin: 8px 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.store-request-total {
+  display: flex;
+  justify-content: flex-end;
+  gap: 20px;
+  padding: 20px 0;
+}
 .pos-form {
   padding: 0 22px;
 }

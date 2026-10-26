@@ -1,6 +1,6 @@
 {
   "name": "usman-stationary",
-  "version": "1.0.5",
+  "version": "1.0.6",
   "private": true,
   "description": "Distribution, inventory and accounts for Usman Stationary",
   "author": "Usman Stationary",
@@ -14,7 +14,8 @@
     "dist": "npm run build && electron-builder --win nsis --publish never",
     "ui:check": "node scripts/ui-check.cjs",
     "pos:check": "node scripts/pos-check.cjs",
-    "desktop:check": "node scripts/desktop-check.cjs"
+    "desktop:check": "node scripts/desktop-check.cjs",
+    "store:check": "node scripts/storefront-check.cjs"
   },
   "dependencies": {
     "bcryptjs": "^3.0.2",

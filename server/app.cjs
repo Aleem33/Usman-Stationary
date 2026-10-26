@@ -2,6 +2,7 @@ const express = require("express");
 const crypto = require("node:crypto");
 const bcrypt = require("bcryptjs");
 const path = require("node:path");
+const storefront = require("./storefront.cjs");
 const { openDatabase } = require("./db.cjs");
 const { post, getDocument, saveItem, text, reports } = require("./domain.cjs");
 const { report } = require("./reports.cjs");
@@ -17,8 +18,13 @@ function createApp(db = openDatabase()) {
   const smallJson = express.json({
     limit: "1mb",
   });
+  const storeJson = express.json({ limit: "64kb" });
   app.use((req, res, next) =>
-    req.path === "/api/restore" ? next() : smallJson(req, res, next),
+    req.path === "/api/restore"
+      ? next()
+      : req.path === "/api/storefront/requests"
+        ? storeJson(req, res, next)
+        : smallJson(req, res, next),
   );
   const origins = new Set([
     "http://127.0.0.1:5173",
@@ -51,7 +57,7 @@ function createApp(db = openDatabase()) {
     res.json({
       ok: true,
       setup: !(await db.prepare("SELECT id FROM users LIMIT 1").get()),
-      version: "1.0.7",
+      version: "1.0.8",
       qa: process.env.QA_MODE === "1" && process.env.NODE_ENV !== "production",
     }),
   );
@@ -124,6 +130,11 @@ function createApp(db = openDatabase()) {
       res.json({ ok: true });
     }),
   );
+  storefront.registerPublic(app, db, wrap);
+  app.use(
+    "/usmanstationary",
+    express.static(path.join(__dirname, "public"), { index: "index.html" }),
+  );
   app.use("/api", async (req, res, next) => {
     const token = (req.headers.authorization || "").replace(/^Bearer /, "");
     const session = await db
@@ -138,6 +149,7 @@ function createApp(db = openDatabase()) {
     next();
   });
   app.post("/api/password", wrap(passwordHandlers.change));
+  storefront.registerPrivate(app, db, wrap);
   app.get(
     "/api/state",
     wrap(async (req, res) =>
@@ -164,6 +176,7 @@ function createApp(db = openDatabase()) {
             ]),
           ),
           reports,
+          storefrontRequests: await storefront.listRequests(db),
         })),
       ),
     ),
@@ -349,12 +362,16 @@ function createApp(db = openDatabase()) {
     console.error(err.message);
     res
       .status(
-        [400, 403, 409, 413, 429, 503].includes(err.status) ? err.status : 400,
+        [400, 403, 404, 409, 413, 429, 503].includes(err.status)
+          ? err.status
+          : 400,
       )
       .json({
         error:
           err.status === 413
-            ? "Backup upload is too large (maximum 20 MB)"
+            ? req.path === "/api/storefront/requests"
+              ? "Request is too large. Choose fewer products."
+              : "Backup upload is too large (maximum 20 MB)"
             : err.message.includes("UNIQUE") || err.code === "ER_DUP_ENTRY"
               ? "This barcode or document already exists"
               : err.message,

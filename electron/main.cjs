@@ -73,6 +73,10 @@ app.whenReady().then(() => {
     trusted(event);
     return main.webContents.getPrintersAsync();
   });
+  ipcMain.handle("external:store", (event) => {
+    trusted(event);
+    return shell.openExternal("https://store.aleemcore.com/usmanstationary");
+  });
   ipcMain.handle("external:whatsapp", (event, { phone, message }) => {
     trusted(event);
     if (
