@@ -7,6 +7,7 @@ const { createApp } = require("../server/app.cjs");
 const { saveItem, post } = require("../server/domain.cjs");
 
 (async () => {
+  const packaged = process.argv.includes("--packaged");
   const db = openDatabase(":memory:");
   const password = bcrypt.hashSync("abcdef", 4);
   db.prepare("INSERT INTO users(id,name,password) VALUES(1,?,?)").run(
@@ -41,9 +42,12 @@ const { saveItem, post } = require("../server/domain.cjs");
     lines: [{ item_id: 1, qty: 5, price: 10 }],
   });
   const originals = db.prepare("SELECT * FROM documents ORDER BY id").all();
-  const server = createApp(db).listen(0, "127.0.0.1");
-  await new Promise((resolve) => server.once("listening", resolve));
-  const packaged = process.argv.includes("--packaged");
+  // The packaged renderer permits only port 4000 for local testing in its CSP.
+  const server = createApp(db).listen(packaged ? 4000 : 0, "127.0.0.1");
+  await new Promise((resolve, reject) => {
+    server.once("listening", resolve);
+    server.once("error", reject);
+  });
   const env = { ...process.env };
   delete env.ELECTRON_RUN_AS_NODE;
   const browser = packaged
