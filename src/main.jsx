@@ -362,6 +362,9 @@ function App() {
             <POS
               state={state}
               run={run}
+              create={create}
+              view={view}
+              onAddParty={(onSaved) => setModal({ kind: "party", onSaved })}
               onSaved={(d) => setModal({ kind: "view", document: d })}
             />
           )}
@@ -550,7 +553,7 @@ function App() {
               <span className="muted">· Distribution & accounts</span>
             </span>
             <span>
-              All amounts in PKR <span className="dot-sep">·</span> v1.0.4
+              All amounts in PKR <span className="dot-sep">·</span> v1.0.5
             </span>
           </footer>
         </main>
@@ -579,7 +582,12 @@ function App() {
             run(
               () => api("/parties", { method: "POST", body: b }),
               "Party saved",
-            ).then((r) => r && close())
+            ).then((r) => {
+              if (r) {
+                close();
+                modal.onSaved?.(r.id);
+              }
+            })
           }
         />
       )}
@@ -1454,6 +1462,7 @@ function TransactionForm({
   error,
   initial,
   compact = false,
+  onAddParty,
 }) {
   const financial = [
       "expense",
@@ -1608,18 +1617,30 @@ function TransactionForm({
           onChange={(e) => f("date", e.target.value)}
         />
         <Field label={purchase ? "Supplier" : "Customer / party"}>
-          <select
-            value={b.party_id}
-            onChange={(e) => f("party_id", e.target.value)}
-            required={["receipt", "payment"].includes(type)}
-          >
-            <option value="">Walk-in / none</option>
-            {state.parties.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.name} · {label(p.kind)}
-              </option>
-            ))}
-          </select>
+          <div className="party-picker">
+            <select
+              value={b.party_id}
+              onChange={(e) => f("party_id", e.target.value)}
+              required={["receipt", "payment"].includes(type)}
+            >
+              <option value="">Walk-in / none</option>
+              {state.parties.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name} · {label(p.kind)}
+                </option>
+              ))}
+            </select>
+            {onAddParty && (
+              <button
+                type="button"
+                className="secondary"
+                disabled={busy}
+                onClick={() => onAddParty((id) => f("party_id", id))}
+              >
+                <Plus size={16} /> Add customer
+              </button>
+            )}
+          </div>
         </Field>
         {isReturn && (
           <Field label="Original invoice">
@@ -1912,40 +1933,134 @@ function TransactionForm({
     </form>
   );
 }
-function POS({ state, run, onSaved }) {
+function POS({ state, run, onSaved, create, view, onAddParty }) {
   const [key, setKey] = useState(0),
     [busy, setBusy] = useState(false);
   return (
-    <div className="panel pos-panel">
-      <div className="section-heading">
-        <div>
-          <h2>Sales counter</h2>
-          <p>
-            Barcode scanners work just like a keyboard. Scan, review, and save.
-          </p>
+    <>
+      <section className="panel pos-shortcuts" aria-label="POS quick actions">
+        <div className="section-heading">
+          <div>
+            <h2>Counter workspace</h2>
+            <p>
+              Record purchases, returns and money movements without leaving your
+              sale.
+            </p>
+          </div>
+          <div className="pos-balances">
+            {["Cash", "Bank"].map((account) => (
+              <span key={account}>
+                {account}
+                <strong>
+                  {pkr(
+                    state.accounts.find((a) => a.account === account)
+                      ?.balance || 0,
+                  )}
+                </strong>
+              </span>
+            ))}
+          </div>
         </div>
-        <Badge tone="green">Ready for checkout</Badge>
+        <div className="pos-action-groups">
+          <div>
+            <h3>Transactions</h3>
+            <div className="actions">
+              {[
+                "sale_return",
+                "purchase",
+                "purchase_return",
+                "quotation",
+                "sale_order",
+                "purchase_order",
+              ].map((type) => (
+                <button
+                  key={type}
+                  type="button"
+                  className="secondary"
+                  disabled={busy}
+                  onClick={() => create(type)}
+                >
+                  <Plus size={16} />
+                  {label(type)}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div>
+            <h3>Customers & finances</h3>
+            <div className="actions">
+              <button
+                type="button"
+                className="secondary"
+                disabled={busy}
+                onClick={() => onAddParty()}
+              >
+                <Users size={16} />
+                Add customer / supplier
+              </button>
+              {[
+                ["receipt", "Receive money"],
+                ["payment", "Pay supplier"],
+                ["transfer", "Cash / bank transfer"],
+                ["opening", "Opening balance"],
+                ["expense", "Record expense"],
+              ].map(([type, name]) => (
+                <button
+                  key={type}
+                  type="button"
+                  className="secondary"
+                  disabled={busy}
+                  onClick={() => create(type)}
+                >
+                  <Wallet size={16} />
+                  {name}
+                </button>
+              ))}
+            </div>
+            <p className="footnote">
+              Receipts collect customer balances; payments settle supplier
+              balances. Transfers move funds between cash and bank.
+            </p>
+          </div>
+        </div>
+      </section>
+      <div className="panel pos-panel">
+        <div className="section-heading">
+          <div>
+            <h2>Sales counter</h2>
+            <p>
+              Barcode scanners work just like a keyboard. Scan, review, and
+              save.
+            </p>
+          </div>
+          <Badge tone="green">Ready for checkout</Badge>
+        </div>
+        <TransactionForm
+          key={key}
+          compact
+          type="sale"
+          state={state}
+          busy={busy}
+          onAddParty={onAddParty}
+          onSave={async (b) => {
+            setBusy(true);
+            const d = await run(
+              () => api("/documents", { method: "POST", body: b }),
+              "Sale completed",
+            );
+            setBusy(false);
+            if (d) {
+              setKey((value) => value + 1);
+              onSaved(d);
+            }
+          }}
+        />
       </div>
-      <TransactionForm
-        key={key}
-        compact
-        type="sale"
-        state={state}
-        busy={busy}
-        onSave={async (b) => {
-          setBusy(true);
-          const d = await run(
-            () => api("/documents", { method: "POST", body: b }),
-            "Sale completed",
-          );
-          setBusy(false);
-          if (d) {
-            setKey(key + 1);
-            onSaved(d);
-          }
-        }}
-      />
-    </div>
+      <section className="pos-recent">
+        <h2>Recent transactions</h2>
+        <DocumentTable docs={state.documents.slice(0, 8)} view={view} />
+      </section>
+    </>
   );
 }
 function DocumentView({ document: d, state, onClose, run, notify, onConvert }) {
@@ -2831,7 +2946,7 @@ function SettingsPage({ state, run, notify, updates }) {
       <div>
         <section className="panel settings-card">
           <h2>App updates</h2>
-          <p>Installed version 1.0.4</p>
+          <p>Installed version 1.0.5</p>
           <div className="notice">{updates}</div>
           <div className="actions">
             <button

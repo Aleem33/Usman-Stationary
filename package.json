@@ -1,6 +1,6 @@
 {
   "name": "usman-stationary",
-  "version": "1.0.4",
+  "version": "1.0.5",
   "private": true,
   "description": "Distribution, inventory and accounts for Usman Stationary",
   "author": "Usman Stationary",
@@ -13,6 +13,7 @@
     "test": "node --test tests/*.test.js",
     "dist": "npm run build && electron-builder --win nsis --publish never",
     "ui:check": "node scripts/ui-check.cjs",
+    "pos:check": "node scripts/pos-check.cjs",
     "desktop:check": "node scripts/desktop-check.cjs"
   },
   "dependencies": {

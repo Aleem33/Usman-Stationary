@@ -41,6 +41,23 @@ test("API requires setup key, authenticates, persists data and revokes sessions"
     });
     assert.equal(auth.status, 200);
     token = auth.body.token;
+    const party = await request("/parties", {
+      name: "Counter customer",
+      kind: "customer",
+    });
+    assert.equal(party.status, 200);
+    assert.ok(Number.isSafeInteger(party.body.id) && party.body.id > 0);
+    const edited = await request("/parties", {
+      id: party.body.id,
+      name: "Updated counter customer",
+      kind: "both",
+    });
+    assert.equal(edited.body.id, party.body.id);
+    assert.equal(
+      (await request("/state")).body.parties.find((p) => p.id === party.body.id)
+        .name,
+      "Updated counter customer",
+    );
     assert.equal(
       (
         await request("/items", {

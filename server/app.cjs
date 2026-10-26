@@ -51,7 +51,7 @@ function createApp(db = openDatabase()) {
     res.json({
       ok: true,
       setup: !(await db.prepare("SELECT id FROM users LIMIT 1").get()),
-      version: "1.0.6",
+      version: "1.0.7",
       qa: process.env.QA_MODE === "1" && process.env.NODE_ENV !== "production",
     }),
   );
@@ -180,7 +180,7 @@ function createApp(db = openDatabase()) {
   app.post(
     "/api/parties",
     wrap(async (req, res) => {
-      await db.transaction(async () => {
+      const id = await db.transaction(async () => {
         const b = req.body;
         if (!["customer", "supplier", "both"].includes(b.kind))
           throw Error("Invalid party type");
@@ -196,15 +196,19 @@ function createApp(db = openDatabase()) {
               "UPDATE parties SET name=?,kind=?,phone=?,address=? WHERE id=?",
             )
             .run(...p, Number(b.id));
-        else
-          await db
+        else {
+          const result = await db
             .prepare(
               "INSERT INTO parties(name,kind,phone,address) VALUES(?,?,?,?)",
             )
             .run(...p);
+          return Number(result.lastInsertRowid);
+        }
+        return Number(b.id);
       });
       res.json({
         ok: true,
+        id,
       });
     }),
   );
@@ -336,11 +340,9 @@ function createApp(db = openDatabase()) {
     }),
   );
   app.use("/api", (req, res) =>
-    res
-      .status(404)
-      .json({
-        error: "This API endpoint is unavailable. Update the app and server.",
-      }),
+    res.status(404).json({
+      error: "This API endpoint is unavailable. Update the app and server.",
+    }),
   );
   app.use(express.static(path.join(__dirname, "../dist")));
   app.use((err, req, res, next) => {

@@ -201,6 +201,26 @@ test(
       });
       assert.equal(auth.status, 200);
       token = auth.body.token;
+      const counterParty = await request("/parties", {
+        name: "Counter customer",
+        kind: "customer",
+      });
+      assert.equal(counterParty.status, 200);
+      assert.ok(
+        Number.isSafeInteger(counterParty.body.id) && counterParty.body.id > 0,
+      );
+      const editedParty = await request("/parties", {
+        id: counterParty.body.id,
+        name: "Updated counter customer",
+        kind: "both",
+      });
+      assert.equal(editedParty.body.id, counterParty.body.id);
+      assert.equal(
+        (await request("/state")).body.parties.find(
+          (p) => p.id === counterParty.body.id,
+        ).name,
+        "Updated counter customer",
+      );
       assert.equal(
         (
           await request(
