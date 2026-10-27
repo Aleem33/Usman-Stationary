@@ -1165,6 +1165,9 @@ footer {
 .storefront-inbox {
   margin-bottom: 20px;
 }
+.store-manager { grid-column: 1 / -1; }
+.store-manager-tabs { display: flex; flex-wrap: wrap; gap: 10px; margin: 22px 0; }
+.store-customer-card { border-top: 1px solid #e2e8dd; margin-top: 20px; padding-top: 20px; }
 .storefront-inbox .section-heading {
   flex-wrap: wrap;
   gap: 14px;

@@ -19,6 +19,12 @@ function openDatabase(file = process.env.DB_PATH || "data/store.db") {
  CREATE TABLE IF NOT EXISTS storefront_requests(id INTEGER PRIMARY KEY,submission_key TEXT UNIQUE NOT NULL,submission_hash TEXT NOT NULL,code TEXT UNIQUE NOT NULL,role TEXT NOT NULL,contact_name TEXT NOT NULL,phone TEXT NOT NULL,address TEXT NOT NULL DEFAULT '',notes TEXT NOT NULL DEFAULT '',payload TEXT NOT NULL,status TEXT NOT NULL DEFAULT 'pending',order_id INTEGER REFERENCES documents(id),document_id INTEGER REFERENCES documents(id),created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,updated_at TEXT NOT NULL DEFAULT '');
  `);
   db.dialect = "sqlite";
+  db.exec(`CREATE TABLE IF NOT EXISTS store_customers(id INTEGER PRIMARY KEY,customer_key TEXT NOT NULL UNIQUE,name TEXT NOT NULL,phone TEXT NOT NULL,login TEXT NOT NULL UNIQUE,password TEXT NOT NULL,status TEXT NOT NULL DEFAULT 'pending',segment TEXT NOT NULL DEFAULT 'public');
+CREATE TABLE IF NOT EXISTS store_customer_sessions(token TEXT PRIMARY KEY,customer_id INTEGER NOT NULL REFERENCES store_customers(id),expires INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS store_order_links(id INTEGER PRIMARY KEY,request_id INTEGER NOT NULL UNIQUE REFERENCES storefront_requests(id),customer_key TEXT NOT NULL);`);
+  db.exec(
+    "CREATE TABLE IF NOT EXISTS store_settings(id INTEGER PRIMARY KEY,payload TEXT NOT NULL)",
+  );
   db.columns = async (table) =>
     db
       .prepare(`PRAGMA table_info(${table})`)

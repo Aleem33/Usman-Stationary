@@ -47,6 +47,7 @@ const { saveItem } = require("../server/domain.cjs");
       page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
     page.on("pageerror", (error) => errors.push(error.message));
     await page.goto(base + "/usmanstationary");
+    await page.locator('[data-view="catalog"]').first().click();
     await page
       .getByRole("button", { name: "Add Dollar Blue Ballpoint", exact: true })
       .click();

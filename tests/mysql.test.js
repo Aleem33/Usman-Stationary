@@ -372,6 +372,7 @@ test(
       assert.equal((await request("/logout", {})).status, 200);
       assert.equal((await request("/state")).status, 401);
       await require("./storefront-cases.cjs")(db);
+      await require('./wholesale-cases.cjs')(db);
     } finally {
       if (server) await new Promise((resolve) => server.close(resolve));
       await db.close();

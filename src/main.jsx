@@ -43,6 +43,7 @@ import {
 import "./style.css";
 import { ToastProvider, useToast } from "./toasts";
 import { StorefrontInbox } from "./storefront";
+import { StoreManager } from "./StoreManager";
 const IconButton = ({ children, ...props }) => (
   <button className="icon-button" {...props}>
     {children}
@@ -555,7 +556,7 @@ function App() {
               <span className="muted">· Distribution & accounts</span>
             </span>
             <span>
-              All amounts in PKR <span className="dot-sep">·</span> v1.0.6
+              All amounts in PKR <span className="dot-sep">·</span> v1.0.7
             </span>
           </footer>
         </main>
@@ -2909,6 +2910,7 @@ function SettingsPage({ state, run, notify, updates }) {
   }, []);
   return (
     <div className="settings-grid">
+      <StoreManager state={state} run={run} />
       <form
         className="panel settings-card"
         onSubmit={(e) => {
@@ -2972,7 +2974,7 @@ function SettingsPage({ state, run, notify, updates }) {
       <div>
         <section className="panel settings-card">
           <h2>App updates</h2>
-          <p>Installed version 1.0.6</p>
+          <p>Installed version 1.0.7</p>
           <div className="notice">{updates}</div>
           <div className="actions">
             <button

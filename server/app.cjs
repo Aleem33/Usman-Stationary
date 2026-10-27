@@ -57,7 +57,7 @@ function createApp(db = openDatabase()) {
     res.json({
       ok: true,
       setup: !(await db.prepare("SELECT id FROM users LIMIT 1").get()),
-      version: "1.0.8",
+      version: "1.0.9",
       qa: process.env.QA_MODE === "1" && process.env.NODE_ENV !== "production",
     }),
   );
@@ -362,7 +362,7 @@ function createApp(db = openDatabase()) {
     console.error(err.message);
     res
       .status(
-        [400, 403, 404, 409, 413, 429, 503].includes(err.status)
+        [400, 401, 403, 404, 409, 413, 429, 503].includes(err.status)
           ? err.status
           : 400,
       )

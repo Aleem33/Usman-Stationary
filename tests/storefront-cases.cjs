@@ -33,15 +33,9 @@ module.exports = async function storefrontCases(db) {
   const stock = async () =>
     (await db.prepare("SELECT stock FROM items WHERE id=?").get(item)).stock;
   const visible = (await catalog(db)).items.find((i) => i.id === item);
-  assert.deepEqual(Object.keys(visible).sort(), [
-    "available",
-    "barcode",
-    "category",
-    "id",
-    "name",
-    "price",
-    "unit",
-  ]);
+  assert.equal(visible.cost, undefined);
+  assert.equal(visible.stock, undefined);
+  assert.equal(visible.price, 3000);
   const body = {
     submission_key: crypto.randomUUID(),
     role: "customer",

@@ -1,5 +1,9 @@
 const crypto = require("node:crypto");
 const { text, money, postInTransaction, getDocument } = require("./domain.cjs");
+const pricing = require("./store-pricing.cjs");
+const customers = require("./store-customers.cjs");
+const revision = (c) =>
+  crypto.createHash("sha256").update(JSON.stringify(c)).digest("hex");
 const fail = (message, status = 400) => {
   throw Object.assign(Error(message), { status });
 };
@@ -12,7 +16,7 @@ const publicItem = (i) => ({
   price: i.price,
   available: i.stock > 0,
 });
-async function catalog(db) {
+async function catalog(db, customer = null) {
   return db.transaction(async () => {
     const settings = Object.fromEntries(
       (await db.prepare("SELECT * FROM settings").all()).map((r) => [
@@ -20,6 +24,12 @@ async function catalog(db) {
         r.value,
       ]),
     );
+    const rules = await pricing.config(db);
+    const best = await db
+      .prepare(
+        "SELECT l.item_id,SUM(CASE WHEN d.type='sale' THEN l.qty ELSE -l.qty END) qty FROM lines l JOIN documents d ON d.id=l.document_id WHERE d.type IN ('sale','sale_return') GROUP BY l.item_id HAVING SUM(CASE WHEN d.type='sale' THEN l.qty ELSE -l.qty END)>0 ORDER BY qty DESC LIMIT 12",
+      )
+      .all();
     return {
       business: {
         name: settings.business_name || "Usman Stationary",
@@ -27,13 +37,23 @@ async function catalog(db) {
         address: settings.address || "",
       },
       currency: "PKR",
+      customer: customers.safe(customer),
+      design: {
+        headline: rules.headline,
+        subtitle: rules.subtitle,
+        announcement: rules.announcement,
+        banner_title: rules.banner_title,
+        banner_text: rules.banner_text,
+      },
+      bulk: rules.bulk,
+      best_sellers: best.map((r) => r.item_id),
       items: (
         await db
           .prepare(
             "SELECT id,name,barcode,category,unit,price,stock FROM items ORDER BY name",
           )
           .all()
-      ).map(publicItem),
+      ).map((i) => pricing.product(publicItem(i), rules, customer)),
     };
   });
 }
@@ -68,6 +88,7 @@ function normalize(b) {
     return {
       item_id,
       qty,
+      package: l.package || "piece",
       ...(b.role === "supplier" ? { price: money(l.price) } : {}),
     };
   });
@@ -84,20 +105,48 @@ function normalize(b) {
     lines,
   };
 }
-async function submit(db, b) {
+async function submit(db, b, customer = null) {
   const input = normalize(b),
     hash = crypto
       .createHash("sha256")
-      .update(JSON.stringify(input))
+      .update(
+        JSON.stringify({
+          ...input,
+          customer_key: customer?.customer_key || null,
+        }),
+      )
       .digest("hex");
   return db.transaction(async () => {
+    if (customer) {
+      customer = await db
+        .prepare("SELECT * FROM store_customers WHERE id=? AND customer_key=?")
+        .get(customer.id, customer.customer_key);
+      if (!customer || customer.status === "blocked")
+        fail("Please sign in again", 401);
+    }
     const existing = await db
       .prepare(
         "SELECT code,status,submission_hash FROM storefront_requests WHERE submission_key=?",
       )
       .get(b.submission_key);
     if (existing) {
-      if (existing.submission_hash !== hash)
+      const legacy = crypto
+        .createHash("sha256")
+        .update(
+          JSON.stringify({
+            ...input,
+            lines: input.lines.map(({ package: unit, ...line }) => line),
+          }),
+        )
+        .digest("hex");
+      if (
+        existing.submission_hash !== hash &&
+        !(
+          !customer &&
+          input.lines.every((l) => l.package === "piece") &&
+          existing.submission_hash === legacy
+        )
+      )
         fail(
           "This submission was already sent. Start a new request to change it.",
           409,
@@ -121,8 +170,7 @@ async function submit(db, b) {
         "Too many requests for this phone number. Please try again in 15 minutes.",
         429,
       );
-    const lines = [];
-    let total = 0;
+    const selected = [];
     for (const l of input.lines) {
       const item = await db
         .prepare("SELECT * FROM items WHERE id=?")
@@ -132,23 +180,17 @@ async function submit(db, b) {
           "A selected product is no longer available. Refresh the catalog.",
           409,
         );
-      const price = input.role === "supplier" ? l.price : item.price;
-      const lineTotal = Math.round(l.qty * price);
-      total += lineTotal;
-      if (!Number.isSafeInteger(total) || total > 1e12)
-        fail("Request value is too large");
-      lines.push({
-        item_id: item.id,
-        name: item.name,
-        barcode: item.barcode,
-        unit: item.unit,
-        qty: l.qty,
-        price,
-        total: lineTotal,
-      });
+      selected.push(item);
     }
+    const priced = pricing.priceLines(
+      selected,
+      input.lines,
+      await pricing.config(db),
+      customer,
+      input.role,
+    );
     const code = "WEB-" + crypto.randomBytes(6).toString("hex").toUpperCase();
-    await db
+    const inserted = await db
       .prepare(
         "INSERT INTO storefront_requests(submission_key,submission_hash,code,role,contact_name,phone,address,notes,payload,created_at) VALUES(?,?,?,?,?,?,?,?,?,?)",
       )
@@ -161,9 +203,15 @@ async function submit(db, b) {
         input.phone,
         input.address,
         input.notes,
-        JSON.stringify({ lines, total }),
+        JSON.stringify(priced),
         new Date().toISOString().slice(0, 19).replace("T", " "),
       );
+    if (customer)
+      await db
+        .prepare(
+          "INSERT INTO store_order_links(request_id,customer_key) VALUES(?,?)",
+        )
+        .run(Number(inserted.lastInsertRowid), customer.customer_key);
     return { code, status: "pending" };
   });
 }
@@ -231,6 +279,8 @@ async function processRequest(db, id, body) {
         item_id: l.item_id,
         qty: l.qty,
         price: l.price / 100,
+        discount: (l.discount || 0) / 100,
+        discount_mode: "amount",
         tax: defaultTax,
         tax_mode: "percent",
       })),
@@ -269,10 +319,13 @@ async function fulfillRequest(db, id, body) {
   });
 }
 function registerPublic(app, db, wrap) {
+  customers.registerPublic(app, db, wrap);
   const attempts = new Map();
   app.get(
     "/api/storefront/catalog",
-    wrap(async (req, res) => res.json(await catalog(db))),
+    wrap(async (req, res) =>
+      res.json(await catalog(db, await customers.current(db, req))),
+    ),
   );
   app.post(
     "/api/storefront/requests",
@@ -289,11 +342,49 @@ function registerPublic(app, db, wrap) {
         fail("Too many submissions. Please try again later.", 429);
       attempt.count++;
       attempts.set(key, attempt);
-      res.status(201).json(await submit(db, req.body));
+      res
+        .status(201)
+        .json(await submit(db, req.body, await customers.current(db, req)));
     }),
   );
 }
 function registerPrivate(app, db, wrap) {
+  customers.registerPrivate(app, db, wrap);
+  app.get(
+    "/api/storefront/config",
+    wrap(async (req, res) => {
+      const c = await pricing.config(db);
+      res.json({ ...pricing.editable(c), revision: revision(c) });
+    }),
+  );
+  app.put(
+    "/api/storefront/config",
+    wrap(async (req, res) => {
+      const c = pricing.validateConfig(req.body);
+      await db.transaction(async () => {
+        if (req.body.revision !== revision(await pricing.config(db)))
+          fail(
+            "Store settings changed on another device. Reopen store management before saving.",
+            409,
+          );
+        if (await db.prepare("SELECT id FROM store_settings WHERE id=1").get())
+          await db
+            .prepare("UPDATE store_settings SET payload=? WHERE id=1")
+            .run(JSON.stringify(c));
+        else
+          await db
+            .prepare("INSERT INTO store_settings(id,payload) VALUES(1,?)")
+            .run(JSON.stringify(c));
+        await db
+          .prepare("INSERT INTO audit(action,detail) VALUES(?,?)")
+          .run(
+            "store.config.updated",
+            "Store pricing and presentation updated",
+          );
+      });
+      res.json({ ok: true });
+    }),
+  );
   app.get(
     "/api/storefront/requests/:id",
     wrap(async (req, res) =>

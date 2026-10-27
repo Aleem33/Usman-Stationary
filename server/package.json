@@ -1,11 +1,11 @@
 {
   "name": "usman-stationary-api",
-  "version": "1.0.8",
+  "version": "1.0.9",
   "private": true,
   "main": "index.js",
   "scripts": {
     "start": "node index.js",
-    "build": "node --check index.js && node --check bootstrap.cjs && node --check app.cjs && node --check db.cjs && node --check mysql.cjs && node --check domain.cjs && node --check reports.cjs && node --check data-management.cjs && node --check passwords.cjs && node --check storefront.cjs && node --check public/store.js"
+    "build": "node --check index.js && node --check bootstrap.cjs && node --check app.cjs && node --check db.cjs && node --check mysql.cjs && node --check domain.cjs && node --check reports.cjs && node --check data-management.cjs && node --check passwords.cjs && node --check storefront.cjs && node --check public/store.js && node --check store-pricing.cjs && node --check store-customers.cjs && node --check public/order-import.mjs"
   },
   "engines": {
     "node": ">=22.13.0"

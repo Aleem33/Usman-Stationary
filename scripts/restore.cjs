@@ -16,6 +16,8 @@ const { openConfiguredDatabase } = require("../server/db.cjs");
     "settings",
     "audit",
     "storefront_requests",
+    "store_order_links",
+    "store_settings",
   ];
   if (
     data.version !== 1 ||
@@ -23,7 +25,12 @@ const { openConfiguredDatabase } = require("../server/db.cjs");
     !names.every(
       (n) =>
         Array.isArray(data.tables[n]) ||
-        (n === "storefront_requests" && data.tables[n] == null),
+        ([
+          "storefront_requests",
+          "store_order_links",
+          "store_settings",
+        ].includes(n) &&
+          data.tables[n] == null),
     )
   )
     throw Error("Invalid backup");

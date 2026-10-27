@@ -10,8 +10,12 @@ const TABLES = [
   "settings",
   "audit",
   "storefront_requests",
+  "store_order_links",
+  "store_settings",
 ];
 const DELETE_ORDER = [
+  "store_order_links",
+  "store_settings",
   "storefront_requests",
   "lines",
   "ledger",
@@ -85,9 +89,14 @@ async function validateBackup(db, backup) {
     !backup.tables ||
     typeof backup.tables !== "object" ||
     Array.isArray(backup.tables) ||
-    !TABLES.filter((table) => table !== "storefront_requests").every((table) =>
-      Object.hasOwn(backup.tables, table),
-    ) ||
+    !TABLES.filter(
+      (table) =>
+        ![
+          "storefront_requests",
+          "store_order_links",
+          "store_settings",
+        ].includes(table),
+    ).every((table) => Object.hasOwn(backup.tables, table)) ||
     Object.keys(backup.tables).some((table) => !TABLES.includes(table))
   )
     throw Error("Invalid business backup. Login data cannot be imported.");
@@ -101,7 +110,12 @@ async function validateBackup(db, backup) {
     throw Error("Backup must be 20 MB or smaller");
   let totalRows = 0;
   for (const table of TABLES) {
-    if (table === "storefront_requests" && !Object.hasOwn(backup.tables, table))
+    if (
+      ["storefront_requests", "store_order_links", "store_settings"].includes(
+        table,
+      ) &&
+      !Object.hasOwn(backup.tables, table)
+    )
       continue;
     const rows = backup.tables[table];
     if (!Array.isArray(rows)) throw Error("Missing backup table: " + table);
@@ -209,11 +223,21 @@ async function validateBackup(db, backup) {
     )
       throw Error("Invalid store request in backup");
   }
+  for (const row of backup.tables.store_settings || []) {
+    try {
+      const pricing = require("./store-pricing.cjs");
+      pricing.validateConfig(pricing.editable(JSON.parse(row.payload)));
+    } catch {
+      throw Error("Invalid store pricing configuration in backup");
+    }
+  }
   return {
     ...backup,
     tables: {
       ...backup.tables,
       storefront_requests: backup.tables.storefront_requests || [],
+      store_order_links: backup.tables.store_order_links || [],
+      store_settings: backup.tables.store_settings || [],
     },
   };
 }
